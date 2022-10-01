@@ -8,6 +8,18 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.65"
+clap = { version = "4.0.7", features = ["derive"] }
+env_logger = "0.9.1"
+futures = { version = "0.3.24", default-features = false, features = ["std"] }
+log = "0.4.17"
+m3u8-rs = "5.0.2"
+reqwest = { version = "0.11.12", features = ["json"] }
+reqwest-middleware = "0.1.6"
+reqwest-retry = "0.1.5"
+serde = { version = "1.0.145", features = ["derive"] }
+tempfile = "3.3.0"
+tokio = { version = "1.21.2", features = ["full"] }
 
 [profile.release]
 codegen-units = 1
