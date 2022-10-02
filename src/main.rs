@@ -75,7 +75,7 @@ pub struct Args {
     protocol: Protocol,
 
     /// Write output to FILE.
-    #[arg(short, long, value_name = "FILE", required_if_eq("protocol", "hls"))]
+    #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
     /// Extra header to include in the request.

@@ -43,8 +43,15 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
         .arg("-i")
         .arg::<&Path>(path.as_ref())
         .arg("-codec")
-        .arg("copy")
-        .arg(args.output.unwrap());
+        .arg("copy");
+
+    if let Some(output) = &args.output {
+        command.arg(output);
+    } else {
+        let output = url.path_segments().unwrap().last().unwrap();
+        let output = Path::new(output).with_extension("mp4");
+        command.arg(output);
+    };
 
     command.spawn()?.wait().await?;
 
