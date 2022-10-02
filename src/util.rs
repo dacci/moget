@@ -29,22 +29,22 @@ impl Downloader {
 
         let mut builder = reqwest::Client::builder().default_headers(headers);
 
-        if let Some(secs) = args.connect_timeout {
-            builder = builder.connect_timeout(Duration::from_secs_f64(secs));
+        if 0.0 < args.connect_timeout {
+            builder = builder.connect_timeout(Duration::from_secs_f64(args.connect_timeout));
         }
 
-        if let Some(secs) = args.max_time {
-            builder = builder.timeout(Duration::from_secs_f64(secs));
+        if 0.0 < args.max_time {
+            builder = builder.timeout(Duration::from_secs_f64(args.max_time));
         }
 
         let client = builder.build()?;
 
         let mut builder = reqwest_middleware::ClientBuilder::new(client);
 
-        if let Some(n) = args.retry {
+        if 0 < args.retry {
             builder = builder.with(reqwest_retry::RetryTransientMiddleware::new_with_policy(
                 reqwest_retry::policies::ExponentialBackoffBuilder::default()
-                    .build_with_max_retries(n),
+                    .build_with_max_retries(args.retry),
             ));
         }
 

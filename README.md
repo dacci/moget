@@ -21,11 +21,11 @@ Options:
       --compressed
           For compatibility with cURL, ignored
       --connect-timeout <fractional seconds>
-          Maximum time in seconds that you allow connection to take
+          Maximum time in seconds that you allow connection to take [default: 10]
   -m, --max-time <fractional seconds>
-          Maximum time in seconds that you allow single download to take
+          Maximum time in seconds that you allow single download to take [default: 60]
       --retry <num>
-          Set the maximum number of allowed retries attempts
+          Set the maximum number of allowed retries attempts [default: 10]
       --parallel-max <num>
           Maximum amount of transfers to do simultaneously for each stream [default: 4]
   -h, --help

@@ -87,16 +87,16 @@ pub struct Args {
     compressed: bool,
 
     /// Maximum time in seconds that you allow connection to take.
-    #[arg(long, value_name = "fractional seconds")]
-    connect_timeout: Option<f64>,
+    #[arg(long, default_value_t = 10.0, value_name = "fractional seconds")]
+    connect_timeout: f64,
 
     /// Maximum time in seconds that you allow single download to take.
-    #[arg(short, long, value_name = "fractional seconds")]
-    max_time: Option<f64>,
+    #[arg(short, long, default_value_t = 60.0, value_name = "fractional seconds")]
+    max_time: f64,
 
     /// Set the maximum number of allowed retries attempts.
-    #[arg(long, value_name = "num")]
-    retry: Option<u32>,
+    #[arg(long, default_value_t = 10, value_name = "num")]
+    retry: u32,
 
     /// Maximum amount of transfers to do simultaneously for each stream.
     #[arg(long, value_name = "num", default_value_t = 4)]
