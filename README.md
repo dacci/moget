@@ -13,7 +13,7 @@ Arguments:
 
 Options:
       --protocol <PROTOCOL>
-          Protocol to use to communicate with the server [default: vimeo] [possible values: vimeo, hls]
+          Protocol to use to communicate with the server [default: auto] [possible values: auto, vimeo, hls]
   -o, --output <FILE>
           Write output to FILE
   -H, --header <X-Name: value>

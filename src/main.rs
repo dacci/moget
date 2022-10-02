@@ -2,10 +2,11 @@ mod hls;
 mod util;
 mod vimeo;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::Parser;
 use futures::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
+use reqwest::Url;
 use std::path::PathBuf;
 use tokio::io;
 
@@ -13,10 +14,25 @@ use tokio::io;
 async fn main() -> Result<()> {
     env_logger::init();
 
-    let args = Args::parse();
+    let args: Args = Args::parse();
     let cx = Context::new()?;
 
-    let fut = match args.protocol {
+    let protocol = match args.protocol {
+        Protocol::Auto => {
+            let url: Url = args.url.parse()?;
+            if url.path().ends_with(".json") {
+                Protocol::Vimeo
+            } else if url.path().ends_with(".m3u8") {
+                Protocol::Hls
+            } else {
+                Protocol::Auto
+            }
+        }
+        protocol => protocol,
+    };
+
+    let fut = match protocol {
+        Protocol::Auto => bail!("protocol could not be detected"),
         Protocol::Vimeo => vimeo::main(args, cx).boxed(),
         Protocol::Hls => hls::main(args, cx).boxed(),
     };
@@ -71,7 +87,7 @@ pub struct Args {
     url: String,
 
     /// Protocol to use to communicate with the server.
-    #[arg(long, default_value = "vimeo")]
+    #[arg(long, default_value = "auto")]
     protocol: Protocol,
 
     /// Write output to FILE.
@@ -106,6 +122,7 @@ pub struct Args {
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]
 enum Protocol {
     #[default]
+    Auto,
     Vimeo,
     Hls,
 }
