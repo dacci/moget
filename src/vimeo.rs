@@ -76,7 +76,7 @@ struct Segment {
     // size: u64,
 }
 
-pub(super) async fn main(args: super::Args) -> Result<()> {
+pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
     let client = Arc::new(Downloader::new(&args)?);
 
     let master_url = build_master_url(&args.url)?;
@@ -90,16 +90,20 @@ pub(super) async fn main(args: super::Args) -> Result<()> {
         .await?;
     let clip_url = master_url.join(&clip.base_url)?;
 
+    let mut len = 0;
     let mut vec = vec![];
     if let Some(media) = clip.best_video() {
         let urls = media.resolve(&clip_url)?;
-        vec.push(client.download_merge(urls));
+        len += urls.len();
+        vec.push(client.download_merge(urls, &cx.progress));
     }
     if let Some(media) = clip.best_audio() {
         let urls = media.resolve(&clip_url)?;
-        vec.push(client.download_merge(urls));
+        len += urls.len();
+        vec.push(client.download_merge(urls, &cx.progress));
     }
 
+    cx.progress.set_length(len as _);
     let files: Vec<TempPath> = future::try_join_all(vec).await?;
 
     let mut command = Command::new("ffmpeg");

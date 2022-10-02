@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::process::Command;
 
-pub(super) async fn main(args: super::Args) -> Result<()> {
+pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
     let client = Arc::new(Downloader::new(&args)?);
 
     let url: Url = args.url.parse()?;
@@ -35,7 +35,8 @@ pub(super) async fn main(args: super::Args) -> Result<()> {
         vec.push(url.join(&segment.uri)?);
     }
 
-    let path = client.download_merge(vec).await?;
+    cx.progress.set_length(vec.len() as _);
+    let path = client.download_merge(vec, &cx.progress).await?;
 
     let mut command = Command::new("ffmpeg");
     command

@@ -5,18 +5,20 @@ mod vimeo;
 use anyhow::Result;
 use clap::Parser;
 use futures::prelude::*;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
 use tokio::io;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::new().default_filter_or("info")).init();
+    env_logger::init();
 
     let args = Args::parse();
+    let cx = Context::new()?;
 
     let fut = match args.protocol {
-        Protocol::Vimeo => vimeo::main(args).boxed(),
-        Protocol::Hls => hls::main(args).boxed(),
+        Protocol::Vimeo => vimeo::main(args, cx).boxed(),
+        Protocol::Hls => hls::main(args, cx).boxed(),
     };
 
     tokio::select! {
@@ -106,4 +108,24 @@ enum Protocol {
     #[default]
     Vimeo,
     Hls,
+}
+
+struct Context {
+    progress: ProgressBar,
+}
+
+impl Context {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            progress: ProgressBar::new(0).with_style(ProgressStyle::with_template(
+                "[{elapsed_precise}] [{wide_bar}] ({eta})",
+            )?),
+        })
+    }
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        self.progress.finish_and_clear()
+    }
 }

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures::prelude::*;
-use log::info;
+use indicatif::ProgressBar;
+use log::debug;
 use reqwest::Url;
 use reqwest_middleware::ClientWithMiddleware as Client;
 use std::ops::Deref;
@@ -53,7 +54,11 @@ impl Downloader {
         })
     }
 
-    pub async fn download_merge(self: &Arc<Self>, urls: Vec<Url>) -> Result<TempPath> {
+    pub async fn download_merge(
+        self: &Arc<Self>,
+        urls: Vec<Url>,
+        progress: &ProgressBar,
+    ) -> Result<TempPath> {
         let (file, path) = tempfile_in(".").await?;
 
         stream::iter(urls)
@@ -67,6 +72,7 @@ impl Downloader {
             .buffered(self.parallel_max)
             .try_fold(file, |mut dest, src| async move {
                 Self::merge(src, &mut dest).await?;
+                progress.inc(1);
                 Ok(dest)
             })
             .await?;
@@ -82,7 +88,7 @@ impl Downloader {
             file.write_all(&bytes).await?;
         }
 
-        info!("{}", res.url());
+        debug!(target: "download", "{}", res.url());
 
         Ok(path)
     }
@@ -91,8 +97,12 @@ impl Downloader {
         src: impl AsRef<Path>,
         dest: &mut (impl io::AsyncWrite + Unpin + ?Sized),
     ) -> Result<()> {
-        let mut src = File::open(src).await?;
-        io::copy(&mut src, dest).await?;
+        let src = src.as_ref();
+        let mut src_file = File::open(src).await?;
+        io::copy(&mut src_file, dest).await?;
+
+        debug!(target: "merge", "{}", src.display());
+
         Ok(())
     }
 }
