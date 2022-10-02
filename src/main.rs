@@ -135,7 +135,7 @@ impl Context {
     fn new() -> Result<Self> {
         Ok(Self {
             progress: ProgressBar::new(0).with_style(ProgressStyle::with_template(
-                "[{elapsed_precise}] [{wide_bar}] ({eta})",
+                "[{elapsed_precise}] [{wide_bar}] {human_pos}/{human_len} ({eta})",
             )?),
         })
     }
