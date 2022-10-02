@@ -13,13 +13,15 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
     let url: Url = args.url.parse()?;
     let media = resolve_playlist(&client, &url).await?;
     let len = media.iter().fold(0, |a, x| a + x.len());
-    cx.progress.set_length(len as _);
 
     let vec = media
         .into_iter()
         .map(|urls| client.download_merge(urls, &cx.progress))
         .collect::<Vec<_>>();
+
+    cx.start_progress(len as _);
     let files = future::try_join_all(vec).await?;
+    cx.progress.finish();
 
     let mut command = Command::new("ffmpeg");
 

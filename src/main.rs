@@ -8,7 +8,8 @@ use futures::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Url;
 use std::path::PathBuf;
-use tokio::io;
+use std::sync::Arc;
+use tokio::{io, time};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -128,16 +129,37 @@ enum Protocol {
 }
 
 struct Context {
-    progress: ProgressBar,
+    progress: Arc<ProgressBar>,
 }
 
 impl Context {
     fn new() -> Result<Self> {
+        let progress = ProgressBar::new(0).with_style(ProgressStyle::with_template(
+            "[{elapsed_precise}] [{wide_bar}] {human_pos}/{human_len} ({eta})",
+        )?);
+
         Ok(Self {
-            progress: ProgressBar::new(0).with_style(ProgressStyle::with_template(
-                "[{elapsed_precise}] [{wide_bar}] {human_pos}/{human_len} ({eta})",
-            )?),
+            progress: Arc::new(progress),
         })
+    }
+
+    fn start_progress(&self, len: u64) {
+        self.progress.set_length(len);
+        self.progress.reset();
+
+        let progress = Arc::clone(&self.progress);
+        tokio::spawn(async move {
+            let mut interval = time::interval(time::Duration::from_millis(500));
+
+            loop {
+                interval.tick().await;
+
+                if progress.is_finished() {
+                    break;
+                }
+                progress.tick();
+            }
+        });
     }
 }
 

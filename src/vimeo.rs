@@ -103,8 +103,9 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
         vec.push(client.download_merge(urls, &cx.progress));
     }
 
-    cx.progress.set_length(len as _);
+    cx.start_progress(len as _);
     let files: Vec<TempPath> = future::try_join_all(vec).await?;
+    cx.progress.finish();
 
     let mut command = Command::new("ffmpeg");
 
