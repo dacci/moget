@@ -1,3 +1,5 @@
+extern crate core;
+
 mod hls;
 mod util;
 mod vimeo;

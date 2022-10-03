@@ -4,7 +4,8 @@ use indicatif::ProgressBar;
 use log::debug;
 use reqwest::Url;
 use reqwest_middleware::ClientWithMiddleware as Client;
-use std::ops::Deref;
+use std::iter::StepBy;
+use std::ops::{Deref, Range};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,7 +16,7 @@ use tokio::io::AsyncWriteExt;
 
 pub(crate) struct Downloader {
     client: Client,
-    parallel_max: usize,
+    pub parallel_max: usize,
 }
 
 impl Downloader {
@@ -141,10 +142,50 @@ impl Deref for Downloader {
     }
 }
 
-async fn tempfile_in(dir: impl AsRef<Path>) -> Result<(File, TempPath)> {
+pub async fn tempfile_in(dir: impl AsRef<Path>) -> Result<(File, TempPath)> {
     let dir = dir.as_ref().to_path_buf();
     let (file, path) = tokio::task::spawn_blocking(|| NamedTempFile::new_in(dir))
         .await??
         .into_parts();
     Ok((File::from_std(file), path))
+}
+
+pub struct SplitBy<'a> {
+    src: &'a str,
+    by: usize,
+    iter: StepBy<Range<usize>>,
+}
+
+impl<'a> SplitBy<'a> {
+    pub fn new(src: &'a str, by: usize) -> Self {
+        Self {
+            src,
+            by,
+            iter: (0..src.len()).step_by(by),
+        }
+    }
+}
+
+impl<'a> Iterator for SplitBy<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next() {
+            None => None,
+            Some(pos) => Some(&self.src[pos..self.src.len().min(pos + self.by)]),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_by() {
+        let mut iter = SplitBy::new("abc", 2);
+        assert_eq!(iter.next(), Some("ab"));
+        assert_eq!(iter.next(), Some("c"));
+        assert_eq!(iter.next(), None);
+    }
 }
