@@ -94,8 +94,8 @@ impl Downloader {
             .client
             .get(url.clone())
             .send()
-            .await?
-            .error_for_status()
+            .and_then(|r| async { r.error_for_status() }.err_into())
+            .await
             .with_context(|| format!("failed to request to {url}"))?;
         let (mut file, path) = tempfile_in(".")
             .await

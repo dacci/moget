@@ -101,9 +101,8 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
     let clip: Clip = client
         .get(master_url.clone())
         .send()
-        .await?
-        .error_for_status()?
-        .json()
+        .and_then(|r| async { r.error_for_status() }.err_into())
+        .and_then(|r| r.json().err_into())
         .await
         .with_context(|| format!("failed to get clip info from `{master_url}`"))?;
     let clip_url = master_url

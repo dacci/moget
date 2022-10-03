@@ -57,9 +57,7 @@ async fn resolve_playlist(
     client: &Downloader,
     url: &Url,
 ) -> Result<Vec<Vec<(Url, Option<Decryptor>)>>> {
-    let playlist = get_playlist(client, url)
-        .await
-        .with_context(|| format!("failed to get playlist from {url}"))?;
+    let playlist = get_playlist(client, url.clone()).await?;
 
     let vec = match playlist {
         Playlist::MasterPlaylist(playlist) => {
@@ -97,7 +95,7 @@ async fn resolve_playlist(
             }
             .map(|s| url.join(s).map_err(anyhow::Error::new));
             stream::iter(s)
-                .and_then(|u| async { get_playlist(client, &u).await.map(|p| (u, p)) })
+                .and_then(|u| get_playlist(client, u.clone()).map_ok(|p| (u, p)))
                 .and_then(|(u, p)| async {
                     match p {
                         Playlist::MasterPlaylist(_) => Err(anyhow!("not a media playlist")),
@@ -139,14 +137,14 @@ async fn resolve_playlist(
     Ok(sources)
 }
 
-async fn get_playlist(client: &Downloader, url: &Url) -> Result<Playlist> {
+async fn get_playlist(client: &Downloader, url: Url) -> Result<Playlist> {
     let res = client
         .get(url.clone())
         .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+        .and_then(|r| async { r.error_for_status() }.err_into())
+        .and_then(|r| r.bytes().err_into())
+        .await
+        .with_context(|| format!("failed to get playlist from {url}"))?;
 
     match m3u8_rs::parse_playlist(&res) {
         Ok((_, playlist)) => Ok(playlist),
@@ -202,9 +200,8 @@ async fn build_decryptor(
     let key = client
         .get(key_url.clone())
         .send()
-        .await?
-        .error_for_status()?
-        .bytes()
+        .and_then(|r| async { r.error_for_status() }.err_into())
+        .and_then(|r| r.bytes().err_into())
         .await
         .with_context(|| anyhow!("failed to get key from {key_url}"))?;
 
