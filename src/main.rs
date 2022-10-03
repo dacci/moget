@@ -2,7 +2,7 @@ mod hls;
 mod util;
 mod vimeo;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as _, Result};
 use clap::Parser;
 use futures::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -16,11 +16,14 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     let args: Args = Args::parse();
-    let cx = Context::new()?;
+    let cx = Context::new();
 
     let protocol = match args.protocol {
         Protocol::Auto => {
-            let url: Url = args.url.parse()?;
+            let url: Url = args
+                .url
+                .parse()
+                .with_context(|| format!("failed to parse URL `{}`", args.url))?;
             if url.path().ends_with(".json") {
                 Protocol::Vimeo
             } else if url.path().ends_with(".m3u8") {
@@ -133,14 +136,17 @@ struct Context {
 }
 
 impl Context {
-    fn new() -> Result<Self> {
-        let progress = ProgressBar::new(0).with_style(ProgressStyle::with_template(
-            "[{elapsed_precise}] [{wide_bar}] {human_pos}/{human_len} ({eta})",
-        )?);
+    fn new() -> Self {
+        let progress = ProgressBar::new(0).with_style(
+            ProgressStyle::with_template(
+                "[{elapsed_precise}] [{wide_bar}] {human_pos}/{human_len} ({eta})",
+            )
+            .unwrap(),
+        );
 
-        Ok(Self {
+        Self {
             progress: Arc::new(progress),
-        })
+        }
     }
 
     fn start_progress(&self, len: u64) {

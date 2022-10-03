@@ -1,5 +1,5 @@
 use crate::util::Downloader;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::prelude::*;
 use reqwest::Url;
 use std::sync::Arc;
@@ -53,15 +53,30 @@ impl Media {
     }
 
     fn resolve(&self, clip_url: &Url) -> Result<Vec<Url>> {
-        let base_url = clip_url.join(&self.base_url)?;
-        let mut urls = vec![base_url.join(&self.init_segment)?];
+        let base_url = clip_url
+            .join(&self.base_url)
+            .with_context(|| format!("failed to build media URL from `{}`", self.base_url))?;
+        let mut urls = vec![base_url.join(&self.init_segment).with_context(|| {
+            format!(
+                "failed to build init segment URL from `{}`",
+                self.init_segment
+            )
+        })?];
 
         if let Some(url) = &self.index_segment {
-            urls.push(base_url.join(url)?);
+            urls.push(
+                base_url
+                    .join(url)
+                    .with_context(|| format!("failed build index segment URL from `{}`", url))?,
+            );
         }
 
         for segment in &self.segments {
-            urls.push(base_url.join(&segment.url)?);
+            urls.push(
+                base_url.join(&segment.url).with_context(|| {
+                    format!("failed to build segment URL from `{}`", segment.url)
+                })?,
+            );
         }
 
         Ok(urls)
@@ -77,9 +92,11 @@ struct Segment {
 }
 
 pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
-    let client = Arc::new(Downloader::new(&args)?);
+    let client = Downloader::new(&args).context("failed to create HTTP client")?;
+    let client = Arc::new(client);
 
-    let master_url = build_master_url(&args.url)?;
+    let master_url = build_master_url(&args.url)
+        .with_context(|| format!("failed to build master URL from `{}`", args.url))?;
 
     let clip: Clip = client
         .get(master_url.clone())
@@ -87,8 +104,11 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
         .await?
         .error_for_status()?
         .json()
-        .await?;
-    let clip_url = master_url.join(&clip.base_url)?;
+        .await
+        .with_context(|| format!("failed to get clip info from `{master_url}`"))?;
+    let clip_url = master_url
+        .join(&clip.base_url)
+        .with_context(|| format!("failed to build clip base URL from `{}`", clip.base_url))?;
 
     let mut len = 0;
     let mut vec = vec![];

@@ -1,5 +1,5 @@
 use crate::util::Downloader;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use futures::prelude::*;
 use m3u8_rs::{AlternativeMedia, MasterPlaylist, Playlist};
 use reqwest::Url;
@@ -8,9 +8,13 @@ use std::sync::Arc;
 use tokio::process::Command;
 
 pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
-    let client = Arc::new(Downloader::new(&args)?);
+    let client = Downloader::new(&args).context("failed to create HTTP client")?;
+    let client = Arc::new(client);
 
-    let url: Url = args.url.parse()?;
+    let url: Url = args
+        .url
+        .parse()
+        .with_context(|| format!("failed to parse URL `{}`", args.url))?;
     let media = resolve_playlist(&client, &url).await?;
     let len = media.iter().fold(0, |a, x| a + x.len());
 
@@ -45,7 +49,9 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
 }
 
 async fn resolve_playlist(client: &Downloader, url: &Url) -> Result<Vec<Vec<Url>>> {
-    let playlist = get_playlist(client, url).await?;
+    let playlist = get_playlist(client, url)
+        .await
+        .with_context(|| format!("failed to get playlist from {url}"))?;
 
     let vec = match playlist {
         Playlist::MasterPlaylist(playlist) => {
@@ -102,10 +108,16 @@ async fn resolve_playlist(client: &Downloader, url: &Url) -> Result<Vec<Vec<Url>
 
         for seg in list.segments {
             if let Some(map) = &seg.map {
-                urls.push(u.join(&map.uri)?);
+                urls.push(
+                    u.join(&map.uri)
+                        .with_context(|| format!("failed to build URL from `{}`", map.uri))?,
+                );
             }
 
-            urls.push(u.join(&seg.uri)?);
+            urls.push(
+                u.join(&seg.uri)
+                    .with_context(|| format!("failed to build URL from `{}`", seg.uri))?,
+            );
         }
 
         sources.push(urls);
@@ -125,7 +137,7 @@ async fn get_playlist(client: &Downloader, url: &Url) -> Result<Playlist> {
 
     match m3u8_rs::parse_playlist(&res) {
         Ok((_, playlist)) => Ok(playlist),
-        Err(e) => Err(anyhow!("{e}")),
+        Err(_) => Err(anyhow!("failed to parse playlist content")),
     }
 }
 

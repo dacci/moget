@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::debug;
@@ -23,7 +23,13 @@ impl Downloader {
         let mut headers = reqwest::header::HeaderMap::new();
         for header in &args.headers {
             if let Some((k, v)) = header.split_once(": ") {
-                headers.insert(k.parse::<reqwest::header::HeaderName>()?, v.parse()?);
+                let k = k
+                    .parse::<reqwest::header::HeaderName>()
+                    .map_err(|_| anyhow!("invalid HTTP header name `{k}`"))?;
+                let v = v
+                    .parse::<reqwest::header::HeaderValue>()
+                    .map_err(|_| anyhow!("invalid HTTP header value `{v}`"))?;
+                headers.insert(k, v);
             }
         }
 
@@ -59,7 +65,9 @@ impl Downloader {
         urls: Vec<Url>,
         progress: &ProgressBar,
     ) -> Result<TempPath> {
-        let (file, path) = tempfile_in(".").await?;
+        let (file, path) = tempfile_in(".")
+            .await
+            .context("failed to create temporary file for merge")?;
 
         stream::iter(urls)
             .then(|url| {
@@ -81,11 +89,25 @@ impl Downloader {
     }
 
     pub async fn download(self: Arc<Self>, url: Url) -> Result<TempPath> {
-        let mut res = self.client.get(url).send().await?.error_for_status()?;
-        let (mut file, path) = tempfile_in(".").await?;
+        let mut res = self
+            .client
+            .get(url.clone())
+            .send()
+            .await?
+            .error_for_status()
+            .with_context(|| format!("failed to request to {url}"))?;
+        let (mut file, path) = tempfile_in(".")
+            .await
+            .context("failed to create temporary file for download")?;
 
-        while let Some(bytes) = res.chunk().await? {
-            file.write_all(&bytes).await?;
+        while let Some(bytes) = res
+            .chunk()
+            .await
+            .with_context(|| format!("failed to read from {url}"))?
+        {
+            file.write_all(&bytes)
+                .await
+                .with_context(|| format!("failed to write response from {url}"))?;
         }
 
         debug!(target: "download", "{}", res.url());
@@ -98,8 +120,12 @@ impl Downloader {
         dest: &mut (impl io::AsyncWrite + Unpin + ?Sized),
     ) -> Result<()> {
         let src = src.as_ref();
-        let mut src_file = File::open(src).await?;
-        io::copy(&mut src_file, dest).await?;
+        let mut src_file = File::open(src)
+            .await
+            .with_context(|| format!("failed to open `{}`", src.display()))?;
+        io::copy(&mut src_file, dest)
+            .await
+            .with_context(|| format!("failed to merge `{}`", src.display()))?;
 
         debug!(target: "merge", "{}", src.display());
 
