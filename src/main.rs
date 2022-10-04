@@ -123,6 +123,14 @@ pub struct Args {
     /// Maximum amount of transfers to do simultaneously for each stream.
     #[arg(long, value_name = "num", default_value_t = 4)]
     parallel_max: usize,
+
+    /// Use the specified proxy.
+    #[arg(short = 'x', long, value_name = "[protocol://]host[:port]")]
+    proxy: Option<String>,
+
+    /// Specify the user name and password to use for proxy authentication.
+    #[arg(short = 'U', long, value_name = "user:password")]
+    proxy_user: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]

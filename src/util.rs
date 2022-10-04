@@ -1,9 +1,10 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::debug;
-use reqwest::Url;
+use reqwest::{Proxy, Url};
 use reqwest_middleware::ClientWithMiddleware as Client;
+use std::borrow::Cow;
 use std::iter::StepBy;
 use std::ops::{Deref, Range};
 use std::path::Path;
@@ -35,6 +36,10 @@ impl Downloader {
         }
 
         let mut builder = reqwest::Client::builder().default_headers(headers);
+
+        if let Some(proxy) = build_proxy(args.proxy.as_deref(), args.proxy_user.as_deref())? {
+            builder = builder.proxy(proxy);
+        }
 
         if 0.0 < args.connect_timeout {
             builder = builder.connect_timeout(Duration::from_secs_f64(args.connect_timeout));
@@ -140,6 +145,35 @@ impl Deref for Downloader {
     fn deref(&self) -> &Self::Target {
         &self.client
     }
+}
+
+fn build_proxy(url: Option<&str>, auth: Option<&str>) -> Result<Option<Proxy>> {
+    let url = match url {
+        None => return Ok(None),
+        Some(url) => url,
+    };
+
+    let mut proxy =
+        Proxy::all(url).with_context(|| anyhow!("failed to configure proxy from URL `{url}`"))?;
+
+    // user info of the URL takes precedence, as in cURL.
+    let auth = match url.parse::<Url>() {
+        Ok(url) if !url.username().is_empty() || url.password().is_some() => Some((
+            Cow::Owned(url.username().into()),
+            Cow::Owned(url.password().unwrap_or_default().into()),
+        )),
+        _ if auth.is_some() => match auth.unwrap().split_once(':') {
+            None => bail!("illegal proxy authentication `{}`", auth.unwrap()),
+            Some((username, password)) => Some((Cow::Borrowed(username), Cow::Borrowed(password))),
+        },
+        _ => None,
+    };
+
+    if let Some((username, password)) = auth {
+        proxy = proxy.basic_auth(&username, &password);
+    }
+
+    Ok(Some(proxy))
 }
 
 pub async fn tempfile_in(dir: impl AsRef<Path>) -> Result<(File, TempPath)> {
