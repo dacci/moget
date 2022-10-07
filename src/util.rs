@@ -24,11 +24,13 @@ impl Downloader {
     pub fn new(args: &super::Args) -> Result<Self> {
         let mut headers = reqwest::header::HeaderMap::new();
         for header in &args.headers {
-            if let Some((k, v)) = header.split_once(": ") {
+            if let Some((k, v)) = header.split_once(':') {
                 let k = k
+                    .trim()
                     .parse::<reqwest::header::HeaderName>()
                     .map_err(|_| anyhow!("invalid HTTP header name `{k}`"))?;
                 let v = v
+                    .trim()
                     .parse::<reqwest::header::HeaderValue>()
                     .map_err(|_| anyhow!("invalid HTTP header value `{v}`"))?;
                 headers.insert(k, v);
