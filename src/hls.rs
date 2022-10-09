@@ -139,10 +139,7 @@ async fn resolve_playlist(
 
 async fn get_playlist(client: &Downloader, url: Url) -> Result<Playlist> {
     let res = client
-        .get(url.clone())
-        .send()
-        .and_then(|r| async { r.error_for_status() }.err_into())
-        .and_then(|r| r.bytes().err_into())
+        .get_bytes(url.clone())
         .await
         .with_context(|| format!("failed to get playlist from {url}"))?;
 
@@ -198,10 +195,7 @@ async fn build_decryptor(
         })?;
 
     let key = client
-        .get(key_url.clone())
-        .send()
-        .and_then(|r| async { r.error_for_status() }.err_into())
-        .and_then(|r| r.bytes().err_into())
+        .get_bytes(key_url.clone())
         .await
         .with_context(|| anyhow!("failed to get key from {key_url}"))?;
 

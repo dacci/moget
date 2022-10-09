@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use futures::prelude::*;
 use indicatif::ProgressBar;
 use log::debug;
-use reqwest::{Proxy, Url};
+use reqwest::{IntoUrl, Proxy, Url};
 use reqwest_middleware::ClientWithMiddleware as Client;
 use std::borrow::Cow;
 use std::iter::StepBy;
@@ -12,8 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
-use tokio::io;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{self, AsyncWriteExt};
 
 pub(crate) struct Downloader {
     client: Client,
@@ -66,6 +65,16 @@ impl Downloader {
             client: builder.build(),
             parallel_max: args.parallel_max,
         })
+    }
+
+    pub fn get_bytes(
+        &self,
+        url: impl IntoUrl,
+    ) -> impl Future<Output = reqwest_middleware::Result<bytes::Bytes>> {
+        self.get(url)
+            .send()
+            .and_then(|r| async { r.error_for_status() }.err_into())
+            .and_then(|r| r.bytes().err_into())
     }
 
     pub async fn download_merge(

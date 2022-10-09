@@ -783,6 +783,7 @@ dependencies = [
  "aes",
  "anyhow",
  "block-padding",
+ "bytes",
  "cbc",
  "cipher",
  "clap",
