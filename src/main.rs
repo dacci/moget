@@ -151,7 +151,8 @@ impl Context {
             ProgressStyle::with_template(
                 "[{elapsed_precise}] [{wide_bar}] {human_pos}/{human_len} ({eta})",
             )
-            .unwrap(),
+            .unwrap()
+            .progress_chars("=> "),
         );
 
         Self {
