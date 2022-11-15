@@ -149,7 +149,7 @@ impl Context {
     fn new() -> Self {
         let progress = ProgressBar::new(0).with_style(
             ProgressStyle::with_template(
-                "[{elapsed_precise}] [{wide_bar}] {human_pos}/{human_len} ({eta})",
+                "[{elapsed_precise}] [{wide_bar}] {human_pos:>5}/{human_len:>5} ({eta:>5})",
             )
             .unwrap()
             .progress_chars("=> "),
