@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use futures::prelude::*;
 use indicatif::ProgressBar;
-use log::debug;
 use reqwest::{IntoUrl, Proxy, Url};
 use reqwest_middleware::ClientWithMiddleware as Client;
 use std::borrow::Cow;
@@ -13,6 +12,7 @@ use std::time::Duration;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
 use tokio::io::{self, AsyncWriteExt};
+use tracing::debug;
 
 pub(crate) struct Downloader {
     client: Client,

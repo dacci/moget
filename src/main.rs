@@ -1,5 +1,3 @@
-extern crate core;
-
 mod hls;
 mod util;
 mod vimeo;
@@ -13,11 +11,29 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::{io, time};
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    env_logger::init();
+fn main() -> Result<()> {
+    use tracing_subscriber::prelude::*;
 
-    let args: Args = Args::parse();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_target(false))
+        .with(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                .from_env()
+                .unwrap(),
+        )
+        .init();
+
+    let args = Args::parse();
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async_main(args))
+}
+
+async fn async_main(args: Args) -> Result<()> {
     let cx = Context::new();
 
     let protocol = match args.protocol {
