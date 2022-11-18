@@ -28,7 +28,7 @@ pub(super) async fn main<'a>(
 
     let vec = media
         .into_iter()
-        .map(|urls| download_merge(&client, urls, &cx.progress))
+        .map(|urls| download_merge(&client, urls, args.parallel_max, &cx.progress))
         .collect::<Vec<_>>();
 
     cx.start_progress(len as _);
@@ -215,6 +215,7 @@ fn parse_iv(src: &str) -> Result<Vec<u8>> {
 async fn download_merge(
     client: &Arc<Downloader>,
     urls: Vec<(Url, Option<Decryptor>)>,
+    parallel_max: usize,
     progress: &indicatif::ProgressBar,
 ) -> Result<TempPath> {
     let (file, path) = tempfile_in(".")
@@ -231,7 +232,7 @@ async fn download_merge(
                     .and_then(|path| async move { Ok((path, dec)) })
             }
         })
-        .buffered(client.parallel_max)
+        .buffered(parallel_max)
         .try_fold(file, |mut dest, (src, dec)| async move {
             decrypt_merge(src, dec, &mut dest).await?;
             progress.inc(1);

@@ -132,7 +132,7 @@ pub(super) async fn main<'a>(
         .map(|media| {
             media.resolve(&clip_url).map(|urls| {
                 len += urls.len();
-                download_merge(&client, urls, &cx.progress)
+                download_merge(&client, urls, args.parallel_max, &cx.progress)
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -165,6 +165,7 @@ fn build_master_url(url: &str) -> Result<Url> {
 async fn download_merge(
     client: &Arc<Downloader>,
     urls: Vec<Url>,
+    parallel_max: usize,
     progress: &ProgressBar,
 ) -> Result<TempPath> {
     let (file, path) = tempfile_in(".")
@@ -176,7 +177,7 @@ async fn download_merge(
             let this = Arc::clone(client);
             this.download(url)
         })
-        .buffered(client.parallel_max)
+        .buffered(parallel_max)
         .try_fold(file, |mut dest, src| async move {
             merge(src, &mut dest).await?;
             progress.inc(1);

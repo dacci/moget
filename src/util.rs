@@ -15,7 +15,6 @@ use tracing::debug;
 
 pub(crate) struct Downloader {
     client: Client,
-    pub parallel_max: usize,
 }
 
 impl Downloader {
@@ -62,7 +61,6 @@ impl Downloader {
 
         Ok(Self {
             client: builder.build(),
-            parallel_max: args.parallel_max,
         })
     }
 
