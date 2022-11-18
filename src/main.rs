@@ -9,6 +9,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Url;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::process::Command;
 use tokio::{io, time};
 
 fn main() -> Result<()> {
@@ -55,14 +56,37 @@ async fn async_main(args: Args) -> Result<()> {
 
     let fut = match protocol {
         Protocol::Auto => bail!("protocol could not be detected"),
-        Protocol::Vimeo => vimeo::main(args, cx).boxed(),
-        Protocol::Hls => hls::main(args, cx).boxed(),
+        Protocol::Vimeo => vimeo::main(&args, &cx).boxed(),
+        Protocol::Hls => hls::main(&args, &cx).boxed(),
     };
 
-    tokio::select! {
+    let (files, output) = tokio::select! {
         r = fut => r?,
-        r = signal() => r?,
+        r = signal() => match r {
+            Ok(_) => bail!("Ctrl+C"),
+            Err(e) => return Err(e.into()),
+        },
+    };
+
+    let mut command = Command::new("ffmpeg");
+
+    for file in &files {
+        command.arg("-i").arg(file);
     }
+
+    command.arg("-codec").arg("copy");
+
+    if let Some(seek) = &args.seek {
+        command.arg("-ss").arg(seek);
+    }
+
+    if args.fast_start {
+        command.arg("-movflags").arg("faststart");
+    }
+
+    command.arg(output.as_ref());
+
+    command.spawn()?.wait().await?;
 
     Ok(())
 }
@@ -147,6 +171,14 @@ pub struct Args {
     /// Specify the user name and password to use for proxy authentication.
     #[arg(short = 'U', long, value_name = "user:password")]
     proxy_user: Option<String>,
+
+    /// Discard input until the timestamps reach position.
+    #[arg(short, long, value_name = "position")]
+    seek: Option<String>,
+
+    /// Run a second pass moving the index (moov atom) to the beginning of the file.
+    #[arg(short, long)]
+    fast_start: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]

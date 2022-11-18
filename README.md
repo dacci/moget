@@ -32,6 +32,10 @@ Options:
           Use the specified proxy
   -U, --proxy-user <user:password>
           Specify the user name and password to use for proxy authentication
+  -s, --seek <position>
+          Discard input until the timestamps reach position
+  -f, --fast-start
+          Run a second pass moving the index (moov atom) to the beginning of the file
   -h, --help
           Print help information
   -V, --version

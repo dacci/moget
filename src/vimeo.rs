@@ -3,13 +3,13 @@ use anyhow::{Context, Result};
 use futures::prelude::*;
 use indicatif::ProgressBar;
 use reqwest::Url;
-use std::path::Path;
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
 use tokio::io;
-use tokio::process::Command;
 use tracing::debug;
 
 #[derive(serde::Deserialize)]
@@ -105,8 +105,11 @@ struct Segment {
     // size: u64,
 }
 
-pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
-    let client = Downloader::new(&args).context("failed to create HTTP client")?;
+pub(super) async fn main<'a>(
+    args: &'a super::Args,
+    cx: &'a super::Context,
+) -> Result<(Vec<TempPath>, Cow<'a, Path>)> {
+    let client = Downloader::new(args).context("failed to create HTTP client")?;
     let client = Arc::new(client);
 
     let master_url = build_master_url(&args.url)
@@ -138,23 +141,13 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
     let files: Vec<TempPath> = future::try_join_all(vec).await?;
     cx.progress.finish();
 
-    let mut command = Command::new("ffmpeg");
-
-    for file in &files {
-        command.arg("-i").arg(file);
-    }
-
-    command.arg("-codec").arg("copy");
-
-    if let Some(output) = args.output {
-        command.arg(output);
+    let output = if let Some(output) = &args.output {
+        output.into()
     } else {
-        command.arg(format!("{}.mp4", clip.clip_id));
-    }
+        PathBuf::from(format!("{}.mp4", clip.clip_id)).into()
+    };
 
-    command.spawn()?.wait().await?;
-
-    Ok(())
+    Ok((files, output))
 }
 
 fn build_master_url(url: &str) -> Result<Url> {

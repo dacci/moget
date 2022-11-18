@@ -3,17 +3,20 @@ use anyhow::{anyhow, bail, Context, Result};
 use futures::prelude::*;
 use m3u8_rs::{AlternativeMedia, KeyMethod, MasterPlaylist, Playlist};
 use reqwest::Url;
+use std::borrow::Cow;
 use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempPath;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
 
 type Decryptor = cbc::Decryptor<aes::Aes128>;
 
-pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
-    let client = Downloader::new(&args).context("failed to create HTTP client")?;
+pub(super) async fn main<'a>(
+    args: &'a super::Args,
+    cx: &'a super::Context,
+) -> Result<(Vec<TempPath>, Cow<'a, Path>)> {
+    let client = Downloader::new(args).context("failed to create HTTP client")?;
     let client = Arc::new(client);
 
     let url: Url = args
@@ -32,25 +35,14 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
     let files = future::try_join_all(vec).await?;
     cx.progress.finish();
 
-    let mut command = Command::new("ffmpeg");
-
-    for path in &files {
-        command.arg("-i").arg(path);
-    }
-
-    command.arg("-codec").arg("copy");
-
-    if let Some(output) = &args.output {
-        command.arg(output);
+    let output = if let Some(output) = &args.output {
+        output.into()
     } else {
         let output = url.path_segments().unwrap().last().unwrap();
-        let output = Path::new(output).with_extension("mp4");
-        command.arg(output);
+        Path::new(output).with_extension("mp4").into()
     };
 
-    command.spawn()?.wait().await?;
-
-    Ok(())
+    Ok((files, output))
 }
 
 async fn resolve_playlist(
