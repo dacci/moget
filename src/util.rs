@@ -87,12 +87,9 @@ impl Downloader {
             .context("failed to create temporary file for merge")?;
 
         stream::iter(urls)
-            .then(|url| {
+            .map(|url| {
                 let this = Arc::clone(self);
-                #[allow(clippy::async_yields_async)]
-                async move {
-                    this.download(url)
-                }
+                this.download(url)
             })
             .buffered(self.parallel_max)
             .try_fold(file, |mut dest, src| async move {
