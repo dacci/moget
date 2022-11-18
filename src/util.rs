@@ -1,6 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
 use futures::prelude::*;
-use indicatif::ProgressBar;
 use reqwest::{IntoUrl, Proxy, Url};
 use reqwest_middleware::ClientWithMiddleware as Client;
 use std::borrow::Cow;
@@ -11,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
-use tokio::io::{self, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
 pub(crate) struct Downloader {
@@ -77,31 +76,6 @@ impl Downloader {
             .and_then(|r| r.bytes().err_into())
     }
 
-    pub async fn download_merge(
-        self: &Arc<Self>,
-        urls: Vec<Url>,
-        progress: &ProgressBar,
-    ) -> Result<TempPath> {
-        let (file, path) = tempfile_in(".")
-            .await
-            .context("failed to create temporary file for merge")?;
-
-        stream::iter(urls)
-            .map(|url| {
-                let this = Arc::clone(self);
-                this.download(url)
-            })
-            .buffered(self.parallel_max)
-            .try_fold(file, |mut dest, src| async move {
-                Self::merge(src, &mut dest).await?;
-                progress.inc(1);
-                Ok(dest)
-            })
-            .await?;
-
-        Ok(path)
-    }
-
     pub async fn download(self: Arc<Self>, url: Url) -> Result<TempPath> {
         let mut res = self
             .client
@@ -127,23 +101,6 @@ impl Downloader {
         debug!(target: "download", "{}", res.url());
 
         Ok(path)
-    }
-
-    async fn merge(
-        src: impl AsRef<Path>,
-        dest: &mut (impl io::AsyncWrite + Unpin + ?Sized),
-    ) -> Result<()> {
-        let src = src.as_ref();
-        let mut src_file = File::open(src)
-            .await
-            .with_context(|| format!("failed to open `{}`", src.display()))?;
-        io::copy(&mut src_file, dest)
-            .await
-            .with_context(|| format!("failed to merge `{}`", src.display()))?;
-
-        debug!(target: "merge", "{}", src.display());
-
-        Ok(())
     }
 }
 

@@ -1,10 +1,16 @@
-use crate::util::Downloader;
+use crate::util::{tempfile_in, Downloader};
 use anyhow::{Context, Result};
 use futures::prelude::*;
+use indicatif::ProgressBar;
 use reqwest::Url;
+use std::path::Path;
 use std::sync::Arc;
+use std::vec::IntoIter;
 use tempfile::TempPath;
+use tokio::fs::File;
+use tokio::io;
 use tokio::process::Command;
+use tracing::debug;
 
 #[derive(serde::Deserialize)]
 struct Clip {
@@ -16,11 +22,19 @@ struct Clip {
 
 impl Clip {
     fn best_video(&self) -> Option<&Media> {
-        self.video.as_ref().and_then(|s| Media::best_of(s))
+        self.video.as_deref().and_then(Media::best_of)
     }
 
     fn best_audio(&self) -> Option<&Media> {
-        self.audio.as_ref().and_then(|s| Media::best_of(s))
+        self.audio.as_deref().and_then(Media::best_of)
+    }
+
+    fn iter(&self) -> IntoIter<&Media> {
+        self.best_video()
+            .into_iter()
+            .chain(self.best_audio())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }
 
@@ -110,17 +124,15 @@ pub(super) async fn main(args: super::Args, cx: super::Context) -> Result<()> {
         .with_context(|| format!("failed to build clip base URL from `{}`", clip.base_url))?;
 
     let mut len = 0;
-    let mut vec = vec![];
-    if let Some(media) = clip.best_video() {
-        let urls = media.resolve(&clip_url)?;
-        len += urls.len();
-        vec.push(client.download_merge(urls, &cx.progress));
-    }
-    if let Some(media) = clip.best_audio() {
-        let urls = media.resolve(&clip_url)?;
-        len += urls.len();
-        vec.push(client.download_merge(urls, &cx.progress));
-    }
+    let vec = clip
+        .iter()
+        .map(|media| {
+            media.resolve(&clip_url).map(|urls| {
+                len += urls.len();
+                download_merge(&client, urls, &cx.progress)
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     cx.start_progress(len as _);
     let files: Vec<TempPath> = future::try_join_all(vec).await?;
@@ -155,4 +167,46 @@ fn build_master_url(url: &str) -> Result<Url> {
         .finish();
 
     Ok(url)
+}
+
+async fn download_merge(
+    client: &Arc<Downloader>,
+    urls: Vec<Url>,
+    progress: &ProgressBar,
+) -> Result<TempPath> {
+    let (file, path) = tempfile_in(".")
+        .await
+        .context("failed to create temporary file for merge")?;
+
+    stream::iter(urls)
+        .map(|url| {
+            let this = Arc::clone(client);
+            this.download(url)
+        })
+        .buffered(client.parallel_max)
+        .try_fold(file, |mut dest, src| async move {
+            merge(src, &mut dest).await?;
+            progress.inc(1);
+            Ok(dest)
+        })
+        .await?;
+
+    Ok(path)
+}
+
+async fn merge(
+    src: impl AsRef<Path>,
+    dest: &mut (impl io::AsyncWrite + Unpin + ?Sized),
+) -> Result<()> {
+    let src = src.as_ref();
+    let mut src_file = File::open(src)
+        .await
+        .with_context(|| format!("failed to open `{}`", src.display()))?;
+    io::copy(&mut src_file, dest)
+        .await
+        .with_context(|| format!("failed to merge `{}`", src.display()))?;
+
+    debug!(target: "merge", "{}", src.display());
+
+    Ok(())
 }
