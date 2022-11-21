@@ -243,11 +243,10 @@ async fn download_merge(
     Ok(path)
 }
 
-async fn decrypt_merge(
-    src: impl AsRef<Path>,
-    dec: Option<Decryptor>,
-    dest: &mut (impl io::AsyncWrite + Unpin + ?Sized),
-) -> Result<()> {
+async fn decrypt_merge<W>(src: impl AsRef<Path>, dec: Option<Decryptor>, dest: &mut W) -> Result<()>
+where
+    W: io::AsyncWrite + Unpin + ?Sized,
+{
     let src = src.as_ref();
     let mut src_file = File::open(src)
         .await
@@ -266,11 +265,11 @@ async fn decrypt_merge(
     Ok(())
 }
 
-async fn decrypt_copy(
-    mut dec: Decryptor,
-    src: &mut (impl io::AsyncRead + Unpin + ?Sized),
-    dest: &mut (impl io::AsyncWrite + Unpin + ?Sized),
-) -> io::Result<()> {
+async fn decrypt_copy<R, W>(mut dec: Decryptor, src: &mut R, dest: &mut W) -> io::Result<()>
+where
+    R: io::AsyncRead + Unpin + ?Sized,
+    W: io::AsyncWrite + Unpin + ?Sized,
+{
     use cipher::BlockDecryptMut;
 
     let mut prev = None;
