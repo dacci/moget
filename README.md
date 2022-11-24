@@ -27,7 +27,7 @@ Options:
       --retry <num>
           Set the maximum number of allowed retries attempts [default: 10]
       --parallel-max <num>
-          Maximum amount of transfers to do simultaneously for each stream [default: 4]
+          Maximum amount of transfers to do simultaneously for each stream [default: 1]
   -x, --proxy <[protocol://]host[:port]>
           Use the specified proxy
   -U, --proxy-user <user:password>

@@ -161,7 +161,7 @@ pub struct Args {
     retry: u32,
 
     /// Maximum amount of transfers to do simultaneously for each stream.
-    #[arg(long, value_name = "num", default_value_t = 4)]
+    #[arg(long, value_name = "num", default_value_t = 1)]
     parallel_max: usize,
 
     /// Use the specified proxy.
