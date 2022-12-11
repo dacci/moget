@@ -1,7 +1,11 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Error, Result};
+use chrono::Utc;
 use futures::prelude::*;
-use reqwest::{IntoUrl, Proxy, Url};
-use reqwest_middleware::ClientWithMiddleware as Client;
+use reqwest::{Client, IntoUrl, Proxy, Url};
+use reqwest_middleware::ClientWithMiddleware;
+use reqwest_retry::policies::ExponentialBackoff;
+use reqwest_retry::RetryPolicy;
+use retry_policies::RetryDecision;
 use std::borrow::Cow;
 use std::iter::StepBy;
 use std::ops::{Deref, Range};
@@ -11,10 +15,11 @@ use std::time::Duration;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tracing::debug;
 
 pub(crate) struct Downloader {
-    client: Client,
+    client: ClientWithMiddleware,
+    raw_client: Client,
+    retry_policy: Option<ExponentialBackoff>,
 }
 
 impl Downloader {
@@ -34,7 +39,7 @@ impl Downloader {
             }
         }
 
-        let mut builder = reqwest::Client::builder().default_headers(headers);
+        let mut builder = Client::builder().default_headers(headers);
 
         if let Some(proxy) = build_proxy(args.proxy.as_deref(), args.proxy_user.as_deref())? {
             builder = builder.proxy(proxy);
@@ -48,19 +53,25 @@ impl Downloader {
             builder = builder.timeout(Duration::from_secs_f64(args.max_time));
         }
 
-        let client = builder.build()?;
+        let raw_client = builder.build()?;
 
-        let mut builder = reqwest_middleware::ClientBuilder::new(client);
+        let mut builder = reqwest_middleware::ClientBuilder::new(raw_client.clone());
 
-        if 0 < args.retry {
+        let retry_policy = if 0 < args.retry {
+            let retry_policy = reqwest_retry::policies::ExponentialBackoffBuilder::default()
+                .build_with_max_retries(args.retry);
             builder = builder.with(reqwest_retry::RetryTransientMiddleware::new_with_policy(
-                reqwest_retry::policies::ExponentialBackoffBuilder::default()
-                    .build_with_max_retries(args.retry),
+                retry_policy,
             ));
-        }
+            Some(retry_policy)
+        } else {
+            None
+        };
 
         Ok(Self {
             client: builder.build(),
+            raw_client,
+            retry_policy,
         })
     }
 
@@ -75,35 +86,59 @@ impl Downloader {
     }
 
     pub async fn download(self: Arc<Self>, url: Url) -> Result<TempPath> {
-        let mut res = self
-            .client
-            .get(url.clone())
-            .send()
-            .and_then(|r| async { r.error_for_status() }.err_into())
-            .await
-            .with_context(|| format!("failed to request to {url}"))?;
-        let (mut file, path) = tempfile_in(".")
-            .await
-            .context("failed to create temporary file for download")?;
+        let request = self.raw_client.get(url.clone()).build()?;
 
-        while let Some(bytes) = res
-            .chunk()
-            .await
-            .with_context(|| format!("failed to read from {url}"))?
-        {
-            file.write_all(&bytes)
-                .await
-                .with_context(|| format!("failed to write response from {url}"))?;
+        let mut n_past_retries = 0;
+        loop {
+            let e = match self.raw_client.execute(request.try_clone().unwrap()).await {
+                Ok(res) => {
+                    let mut res = res
+                        .error_for_status()
+                        .with_context(|| format!("failed to request to {url}"))?;
+
+                    let (mut file, path) = tempfile_in(".")
+                        .await
+                        .context("failed to create temporary file for download")?;
+
+                    loop {
+                        match res.chunk().await {
+                            Ok(None) => return Ok(path),
+                            Ok(Some(bytes)) => file
+                                .write_all(&bytes)
+                                .await
+                                .with_context(|| format!("failed to write response from {url}"))?,
+                            Err(e) => {
+                                break Error::new(e).context(format!("failed to read from {url}"));
+                            }
+                        }
+                    }
+                }
+                Err(e) => Error::new(e).context(format!("failed to request to {url}")),
+            };
+
+            let Some(ref policy) = self.retry_policy else {
+                return Err(e);
+            };
+
+            match policy.should_retry(n_past_retries) {
+                RetryDecision::Retry { execute_after } => {
+                    let duration = (execute_after - Utc::now()).to_std()?;
+                    tracing::warn!(
+                        "Retry attempt #{}. Sleeping {:?} before the next attempt",
+                        n_past_retries,
+                        duration
+                    );
+                    tokio::time::sleep(duration).await;
+                    n_past_retries += 1;
+                }
+                RetryDecision::DoNotRetry => return Err(e),
+            };
         }
-
-        debug!(target: "download", "{}", res.url());
-
-        Ok(path)
     }
 }
 
 impl Deref for Downloader {
-    type Target = Client;
+    type Target = ClientWithMiddleware;
 
     fn deref(&self) -> &Self::Target {
         &self.client
