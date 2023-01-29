@@ -209,7 +209,9 @@ impl Context {
     }
 
     fn start_progress(&self, len: u64) {
-        self.progress.set_length(len);
+        if 0 < len {
+            self.progress.set_length(len);
+        }
         self.progress.reset();
 
         let progress = Arc::clone(&self.progress);

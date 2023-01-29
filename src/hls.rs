@@ -1,11 +1,16 @@
 use crate::util::{tempfile_in, Downloader, SplitBy};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
+use bytes::Bytes;
+use futures::future::BoxFuture;
 use futures::prelude::*;
-use m3u8_rs::{AlternativeMedia, KeyMethod, MasterPlaylist, Playlist};
+use m3u8_rs::{AlternativeMedia, KeyMethod, MasterPlaylist, MediaPlaylist, Playlist};
 use reqwest::Url;
 use std::borrow::Cow;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
@@ -24,14 +29,13 @@ pub(super) async fn main<'a>(
         .parse()
         .with_context(|| format!("failed to parse URL `{}`", args.url))?;
     let media = resolve_playlist(&client, &url).await?;
-    let len = media.iter().fold(0, |a, x| a + x.len());
 
     let vec = media
         .into_iter()
-        .map(|urls| download_merge(&client, urls, args.parallel_max, &cx.progress))
+        .map(|stream| stream.download_merge(&client, args.parallel_max, &cx.progress))
         .collect::<Vec<_>>();
 
-    cx.start_progress(len as _);
+    cx.start_progress(0);
     let files = future::try_join_all(vec).await?;
     cx.progress.finish();
 
@@ -45,13 +49,13 @@ pub(super) async fn main<'a>(
     Ok((files, output))
 }
 
-async fn resolve_playlist(
-    client: &Downloader,
+async fn resolve_playlist<'a>(
+    client: &Arc<Downloader>,
     url: &Url,
-) -> Result<Vec<Vec<(Url, Option<Decryptor>)>>> {
+) -> Result<Vec<SegmentStream<'a>>> {
     let playlist = get_playlist(client, url.clone()).await?;
 
-    let vec = match playlist {
+    match playlist {
         Playlist::MasterPlaylist(playlist) => {
             let best = playlist
                 .variants
@@ -71,7 +75,7 @@ async fn resolve_playlist(
                 .and_then(|n| find_alternative(&playlist, n))
                 .and_then(|a| a.uri.as_ref());
 
-            let s = if alt_video.is_some() && alt_audio.is_some() {
+            if alt_video.is_some() && alt_audio.is_some() {
                 alt_video
                     .into_iter()
                     .chain(alt_audio.into_iter())
@@ -85,48 +89,19 @@ async fn resolve_playlist(
                     .collect::<Vec<_>>()
                     .into_iter()
             }
-            .map(|s| url.join(s).map_err(anyhow::Error::new));
-            stream::iter(s)
-                .and_then(|u| get_playlist(client, u.clone()).map_ok(|p| (u, p)))
-                .and_then(|(u, p)| async {
-                    match p {
-                        Playlist::MasterPlaylist(_) => Err(anyhow!("not a media playlist")),
-                        Playlist::MediaPlaylist(p) => Ok((u, p)),
-                    }
-                })
-                .try_collect::<Vec<_>>()
-                .await?
+            .map(|s| {
+                url.join(s)
+                    .map(|u| SegmentStream::new(client, u))
+                    .map_err(anyhow::Error::new)
+            })
+            .collect()
         }
-        Playlist::MediaPlaylist(playlist) => vec![(url.clone(), playlist)],
-    };
-
-    let mut sources = vec![];
-    for (url, list) in vec {
-        let mut urls = vec![];
-        let mut dec = None;
-
-        for seg in list.segments {
-            if let Some(key) = &seg.key {
-                dec = build_decryptor(key, &url, client).await?;
-            }
-
-            if let Some(map) = &seg.map {
-                let url = url
-                    .join(&map.uri)
-                    .with_context(|| format!("failed to build URL from `{}`", map.uri))?;
-                urls.push((url, dec.clone()));
-            }
-
-            let url = url
-                .join(&seg.uri)
-                .with_context(|| format!("failed to build URL from `{}`", seg.uri))?;
-            urls.push((url, dec.clone()));
+        Playlist::MediaPlaylist(playlist) => {
+            let mut stream = SegmentStream::new(client, url.clone());
+            stream.feed_playlist(playlist)?;
+            Ok(vec![stream])
         }
-
-        sources.push(urls);
     }
-
-    Ok(sources)
 }
 
 async fn get_playlist(client: &Downloader, url: Url) -> Result<Playlist> {
@@ -158,44 +133,6 @@ fn find_alternative<'a>(
     candidates.next()
 }
 
-async fn build_decryptor(
-    key_info: &m3u8_rs::Key,
-    url: &Url,
-    client: &Downloader,
-) -> Result<Option<Decryptor>> {
-    use cipher::KeyIvInit;
-
-    match &key_info.method {
-        KeyMethod::None => return Ok(None),
-        KeyMethod::AES128 => {}
-        method => bail!("unsupported encryption method `{method}`"),
-    }
-
-    let iv = key_info
-        .iv
-        .as_deref()
-        .ok_or_else(|| anyhow!("IV is required but not provided"))
-        .and_then(parse_iv)?;
-
-    let key_url = key_info
-        .uri
-        .as_deref()
-        .ok_or_else(|| anyhow!("key URI is required but not provided"))
-        .and_then(|s| {
-            url.join(s)
-                .with_context(|| anyhow!("failed to build key URL from `{s}`"))
-        })?;
-
-    let key = client
-        .get_bytes(key_url.clone())
-        .await
-        .with_context(|| anyhow!("failed to get key from {key_url}"))?;
-
-    Decryptor::new_from_slices(&key, &iv)
-        .map_err(anyhow::Error::from)
-        .map(Some)
-}
-
 fn parse_iv(src: &str) -> Result<Vec<u8>> {
     if src.len() != 34 {
         bail!("illegal IV length");
@@ -210,37 +147,6 @@ fn parse_iv(src: &str) -> Result<Vec<u8>> {
 
     it.map(|s| u8::from_str_radix(s, 16).map_err(anyhow::Error::from))
         .collect()
-}
-
-async fn download_merge(
-    client: &Arc<Downloader>,
-    urls: Vec<(Url, Option<Decryptor>)>,
-    parallel_max: usize,
-    progress: &indicatif::ProgressBar,
-) -> Result<TempPath> {
-    let (file, path) = tempfile_in(".")
-        .await
-        .context("failed to create temporary file for merge")?;
-
-    stream::iter(urls)
-        .then(|(url, dec)| {
-            let client = Arc::clone(client);
-            #[allow(clippy::async_yields_async)]
-            async move {
-                client
-                    .download(url)
-                    .and_then(|path| async move { Ok((path, dec)) })
-            }
-        })
-        .buffered(parallel_max)
-        .try_fold(file, |mut dest, (src, dec)| async move {
-            decrypt_merge(src, dec, &mut dest).await?;
-            progress.inc(1);
-            Ok(dest)
-        })
-        .await?;
-
-    Ok(path)
 }
 
 async fn decrypt_merge<W>(src: impl AsRef<Path>, dec: Option<Decryptor>, dest: &mut W) -> Result<()>
@@ -295,6 +201,215 @@ where
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
             dest.write_all(block).await
         }
+    }
+}
+
+#[derive(Clone)]
+struct KeyIv(Bytes, Bytes);
+
+struct SegmentStream<'a> {
+    client: Arc<Downloader>,
+    url: Url,
+    future: Option<BoxFuture<'a, Result<MediaPlaylist>>>,
+    end_list: bool,
+    iter: Option<IntoIter<Segment>>,
+    seq: Option<u64>,
+    len: u64,
+    bar: Option<&'a indicatif::ProgressBar>,
+}
+
+impl<'a> SegmentStream<'a> {
+    fn new(client: &Arc<Downloader>, url: Url) -> Self {
+        Self {
+            client: Arc::clone(client),
+            url,
+            future: None,
+            end_list: false,
+            iter: None,
+            seq: None,
+            len: 0,
+            bar: None,
+        }
+    }
+
+    fn set_progress_bar(&mut self, bar: &'a indicatif::ProgressBar) {
+        bar.set_length(self.len);
+        self.bar = Some(bar);
+    }
+
+    fn feed_playlist(&mut self, playlist: MediaPlaylist) -> Result<()> {
+        let end_list = playlist.end_list;
+        let vec = self.resolve_segments(playlist)?;
+
+        self.len += vec.len() as u64;
+        if let Some(bar) = self.bar {
+            bar.set_length(self.len);
+        }
+
+        self.end_list = end_list;
+        self.iter = Some(vec.into_iter());
+
+        Ok(())
+    }
+
+    fn get_playlist(&self) -> impl Future<Output = Result<MediaPlaylist>> {
+        self.client
+            .get(self.url.clone())
+            .send()
+            .and_then(|r| async { r.error_for_status() }.err_into())
+            .and_then(|r| r.bytes().err_into())
+            .err_into()
+            .and_then(|body| async move { Self::parse_media_playlist(&body) })
+    }
+
+    fn parse_media_playlist(bytes: &[u8]) -> Result<MediaPlaylist> {
+        match m3u8_rs::parse_media_playlist(bytes) {
+            Ok((_, playlist)) => Ok(playlist),
+            Err(_) => Err(anyhow!("failed to parse media playlist")),
+        }
+    }
+
+    fn resolve_segments(&self, playlist: MediaPlaylist) -> Result<Vec<Segment>> {
+        let mut vec = Vec::new();
+        let mut key_iv = None;
+
+        for (seg, seq) in playlist.segments.into_iter().zip(playlist.media_sequence..) {
+            if let Some(pos) = self.seq {
+                if seq <= pos {
+                    continue;
+                }
+            }
+
+            if let Some(key_info) = seg.key {
+                key_iv = self.resolve_key(key_info)?;
+            }
+
+            if let Some(map) = seg.map {
+                let url = self.url.join(&map.uri)?;
+                vec.push(Segment::new(seq, url, &key_iv));
+            }
+
+            let url = self.url.join(&seg.uri)?;
+            vec.push(Segment::new(seq, url, &key_iv));
+        }
+
+        Ok(vec)
+    }
+
+    fn resolve_key(&self, key_info: m3u8_rs::Key) -> Result<Option<(Url, Bytes)>> {
+        match key_info.method {
+            KeyMethod::AES128 => {
+                let url = key_info
+                    .uri
+                    .ok_or_else(|| anyhow!("key URI is required but not provided"))
+                    .and_then(|u| {
+                        self.url
+                            .join(&u)
+                            .with_context(|| format!("invalid key uri `{u}`"))
+                    })?;
+                let iv = key_info
+                    .iv
+                    .ok_or_else(|| anyhow!("IV is required but not provided"))
+                    .and_then(|i| parse_iv(&i))
+                    .map(Bytes::from)?;
+                Ok(Some((url, iv)))
+            }
+            KeyMethod::None => Ok(None),
+            m => Err(anyhow!("unsupported encryption method `{m}`")),
+        }
+    }
+
+    async fn download_merge(
+        mut self,
+        client: &Arc<Downloader>,
+        parallel_max: usize,
+        progress: &indicatif::ProgressBar,
+    ) -> Result<TempPath> {
+        let (file, path) = tempfile_in(".")
+            .await
+            .context("failed to create temporary file for merge")?;
+
+        self.set_progress_bar(progress);
+
+        self.map_ok(|seg| seg.download(Arc::clone(client)))
+            .try_buffered(parallel_max)
+            .try_fold(file, |mut dest, (src, dec)| async move {
+                decrypt_merge(src, dec, &mut dest).await?;
+                progress.inc(1);
+                Ok(dest)
+            })
+            .await?;
+
+        Ok(path)
+    }
+}
+
+impl Stream for SegmentStream<'_> {
+    type Item = Result<Segment>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            if let Some(ref mut fut) = self.future {
+                match fut.try_poll_unpin(cx) {
+                    Poll::Ready(Ok(playlist)) => {
+                        self.future.take();
+                        if let Err(e) = self.feed_playlist(playlist) {
+                            return Poll::Ready(Some(Err(e)));
+                        }
+                    }
+                    Poll::Ready(Err(e)) => break Poll::Ready(Some(Err(e))),
+                    Poll::Pending => break Poll::Pending,
+                }
+            }
+            debug_assert!(self.future.is_none());
+
+            if let Some(ref mut iter) = self.iter {
+                match iter.next() {
+                    Some(seg) => {
+                        self.seq.replace(seg.seq);
+                        break Poll::Ready(Some(Ok(seg)));
+                    }
+                    None if self.end_list => break Poll::Ready(None),
+                    _ => {
+                        self.iter.take();
+                    }
+                }
+            }
+            debug_assert!(self.iter.is_none());
+
+            self.future = Some(self.get_playlist().boxed());
+        }
+    }
+}
+
+struct Segment {
+    seq: u64,
+    url: Url,
+    key_iv: Option<(Url, Bytes)>,
+}
+
+impl Segment {
+    fn new(seq: u64, url: Url, key_iv: &Option<(Url, Bytes)>) -> Self {
+        Self {
+            seq,
+            url,
+            key_iv: key_iv.clone(),
+        }
+    }
+
+    async fn download(self, client: Arc<Downloader>) -> Result<(TempPath, Option<Decryptor>)> {
+        let decryptor = if let Some((url, iv)) = self.key_iv {
+            use cipher::KeyIvInit;
+            let key = client.get_bytes(url).await?;
+            Some(Decryptor::new_from_slices(&key, &iv)?)
+        } else {
+            None
+        };
+
+        client
+            .download(self.url)
+            .map_ok(|path| (path, decryptor))
+            .await
     }
 }
 
