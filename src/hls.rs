@@ -233,7 +233,7 @@ impl<'a> SegmentStream<'a> {
     }
 
     fn set_progress_bar(&mut self, bar: &'a indicatif::ProgressBar) {
-        bar.set_length(self.len);
+        bar.inc_length(self.len);
         self.bar = Some(bar);
     }
 
@@ -243,7 +243,7 @@ impl<'a> SegmentStream<'a> {
 
         self.len += vec.len() as u64;
         if let Some(bar) = self.bar {
-            bar.set_length(self.len);
+            bar.inc_length(vec.len() as _);
         }
 
         self.end_list = end_list;
