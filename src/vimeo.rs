@@ -81,7 +81,7 @@ impl Media {
             urls.push(
                 base_url
                     .join(url)
-                    .with_context(|| format!("failed build index segment URL from `{}`", url))?,
+                    .with_context(|| format!("failed build index segment URL from `{url}`"))?,
             );
         }
 
