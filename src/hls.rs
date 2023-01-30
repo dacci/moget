@@ -14,6 +14,7 @@ use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::time::{sleep, Duration, Sleep};
 
 type Decryptor = cbc::Decryptor<aes::Aes128>;
 
@@ -210,7 +211,8 @@ struct KeyIv(Bytes, Bytes);
 struct SegmentStream<'a> {
     client: Arc<Downloader>,
     url: Url,
-    future: Option<BoxFuture<'a, Result<MediaPlaylist>>>,
+    sleep: Option<Pin<Box<Sleep>>>,
+    request: Option<BoxFuture<'a, Result<MediaPlaylist>>>,
     end_list: bool,
     iter: Option<IntoIter<Segment>>,
     seq: Option<u64>,
@@ -223,7 +225,8 @@ impl<'a> SegmentStream<'a> {
         Self {
             client: Arc::clone(client),
             url,
-            future: None,
+            sleep: None,
+            request: None,
             end_list: false,
             iter: None,
             seq: None,
@@ -237,19 +240,20 @@ impl<'a> SegmentStream<'a> {
         self.bar = Some(bar);
     }
 
-    fn feed_playlist(&mut self, playlist: MediaPlaylist) -> Result<()> {
+    fn feed_playlist(&mut self, playlist: MediaPlaylist) -> Result<u64> {
         let end_list = playlist.end_list;
         let vec = self.resolve_segments(playlist)?;
+        let len = vec.len() as u64;
 
-        self.len += vec.len() as u64;
+        self.len += len;
         if let Some(bar) = self.bar {
-            bar.inc_length(vec.len() as _);
+            bar.inc_length(len);
         }
 
         self.end_list = end_list;
         self.iter = Some(vec.into_iter());
 
-        Ok(())
+        Ok(len)
     }
 
     fn get_playlist(&self) -> impl Future<Output = Result<MediaPlaylist>> {
@@ -349,19 +353,38 @@ impl Stream for SegmentStream<'_> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            if let Some(ref mut fut) = self.future {
-                match fut.try_poll_unpin(cx) {
-                    Poll::Ready(Ok(playlist)) => {
-                        self.future.take();
-                        if let Err(e) = self.feed_playlist(playlist) {
-                            return Poll::Ready(Some(Err(e)));
-                        }
+            if let Some(ref mut sleep) = self.sleep {
+                match sleep.poll_unpin(cx) {
+                    Poll::Ready(_) => {
+                        self.sleep.take();
                     }
-                    Poll::Ready(Err(e)) => break Poll::Ready(Some(Err(e))),
                     Poll::Pending => break Poll::Pending,
                 }
             }
-            debug_assert!(self.future.is_none());
+            debug_assert!(self.sleep.is_none());
+
+            if let Some(ref mut request) = self.request {
+                let playlist = match request.try_poll_unpin(cx) {
+                    Poll::Ready(Ok(playlist)) => {
+                        self.request.take();
+                        playlist
+                    }
+                    Poll::Ready(Err(e)) => break Poll::Ready(Some(Err(e))),
+                    Poll::Pending => break Poll::Pending,
+                };
+
+                let target_duration = playlist.target_duration;
+                match self.feed_playlist(playlist) {
+                    Err(e) => break Poll::Ready(Some(Err(e))),
+                    Ok(0) => {
+                        self.sleep =
+                            Some(Box::pin(sleep(Duration::from_secs_f32(target_duration))));
+                        continue;
+                    }
+                    Ok(_) => {}
+                }
+            }
+            debug_assert!(self.request.is_none());
 
             if let Some(ref mut iter) = self.iter {
                 match iter.next() {
@@ -377,7 +400,7 @@ impl Stream for SegmentStream<'_> {
             }
             debug_assert!(self.iter.is_none());
 
-            self.future = Some(self.get_playlist().boxed());
+            self.request = Some(self.get_playlist().boxed());
         }
     }
 }
