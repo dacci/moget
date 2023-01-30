@@ -6,6 +6,8 @@ use futures::prelude::*;
 use m3u8_rs::{AlternativeMedia, KeyMethod, MasterPlaylist, MediaPlaylist, Playlist};
 use reqwest::Url;
 use std::borrow::Cow;
+use std::future::IntoFuture;
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -14,6 +16,7 @@ use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, Duration, Sleep};
 
 type Decryptor = cbc::Decryptor<aes::Aes128>;
@@ -205,6 +208,46 @@ where
     }
 }
 
+#[derive(Clone)]
+struct KeyIv {
+    #[allow(clippy::type_complexity)]
+    inner: Arc<RwLock<Poll<Result<(Bytes, Bytes)>>>>,
+    notify: Arc<Notify>,
+}
+
+impl KeyIv {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(Poll::Pending)),
+            notify: Arc::new(Notify::new()),
+        }
+    }
+}
+
+impl IntoFuture for KeyIv {
+    type Output = Result<Decryptor>;
+    type IntoFuture = BoxFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        async move {
+            loop {
+                if let Poll::Ready(res) = self.inner.read().await.deref() {
+                    match res {
+                        Ok((key, iv)) => {
+                            use cipher::KeyIvInit;
+                            break Ok(Decryptor::new_from_slices(key, iv)?);
+                        }
+                        Err(e) => break Err(anyhow!("{e}")),
+                    }
+                }
+
+                self.notify.notified().await;
+            }
+        }
+        .boxed()
+    }
+}
+
 struct SegmentStream<'a> {
     client: Arc<Downloader>,
     url: Url,
@@ -287,17 +330,17 @@ impl<'a> SegmentStream<'a> {
 
             if let Some(map) = seg.map {
                 let url = self.url.join(&map.uri)?;
-                vec.push(Segment::new(seq, url, &key_iv));
+                vec.push(Segment::new(seq, url, key_iv.clone()));
             }
 
             let url = self.url.join(&seg.uri)?;
-            vec.push(Segment::new(seq, url, &key_iv));
+            vec.push(Segment::new(seq, url, key_iv.clone()));
         }
 
         Ok(vec)
     }
 
-    fn resolve_key(&self, key_info: m3u8_rs::Key) -> Result<Option<(Url, Bytes)>> {
+    fn resolve_key(&self, key_info: m3u8_rs::Key) -> Result<Option<KeyIv>> {
         match key_info.method {
             KeyMethod::AES128 => {
                 let url = key_info
@@ -313,7 +356,21 @@ impl<'a> SegmentStream<'a> {
                     .ok_or_else(|| anyhow!("IV is required but not provided"))
                     .and_then(|i| parse_iv(&i))
                     .map(Bytes::from)?;
-                Ok(Some((url, iv)))
+                let key_iv = KeyIv::new();
+
+                let client = Arc::clone(&self.client);
+                let key_iv_inner = key_iv.clone();
+                tokio::spawn(async move {
+                    let res = client
+                        .get_bytes(url)
+                        .map_ok(|key| (key, iv))
+                        .err_into()
+                        .await;
+                    *key_iv_inner.inner.write().await.deref_mut() = Poll::Ready(res);
+                    key_iv_inner.notify.notify_waiters();
+                });
+
+                Ok(Some(key_iv))
             }
             KeyMethod::None => Ok(None),
             m => Err(anyhow!("unsupported encryption method `{m}`")),
@@ -334,7 +391,13 @@ impl<'a> SegmentStream<'a> {
 
         self.map_ok(|seg| seg.download(Arc::clone(client)))
             .try_buffered(parallel_max)
-            .try_fold(file, |mut dest, (src, dec)| async move {
+            .try_fold(file, |mut dest, (src, key_iv)| async move {
+                let dec = if let Some(key_iv) = key_iv {
+                    Some(key_iv.await?)
+                } else {
+                    None
+                };
+
                 decrypt_merge(src, dec, &mut dest).await?;
                 progress.inc(1);
                 Ok(dest)
@@ -405,30 +468,18 @@ impl Stream for SegmentStream<'_> {
 struct Segment {
     seq: u64,
     url: Url,
-    key_iv: Option<(Url, Bytes)>,
+    key_iv: Option<KeyIv>,
 }
 
 impl Segment {
-    fn new(seq: u64, url: Url, key_iv: &Option<(Url, Bytes)>) -> Self {
-        Self {
-            seq,
-            url,
-            key_iv: key_iv.clone(),
-        }
+    fn new(seq: u64, url: Url, key_iv: Option<KeyIv>) -> Self {
+        Self { seq, url, key_iv }
     }
 
-    async fn download(self, client: Arc<Downloader>) -> Result<(TempPath, Option<Decryptor>)> {
-        let decryptor = if let Some((url, iv)) = self.key_iv {
-            use cipher::KeyIvInit;
-            let key = client.get_bytes(url).await?;
-            Some(Decryptor::new_from_slices(&key, &iv)?)
-        } else {
-            None
-        };
-
+    async fn download(self, client: Arc<Downloader>) -> Result<(TempPath, Option<KeyIv>)> {
         client
             .download(self.url)
-            .map_ok(|path| (path, decryptor))
+            .map_ok(|path| (path, self.key_iv))
             .await
     }
 }
