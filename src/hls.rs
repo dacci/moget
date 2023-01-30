@@ -205,9 +205,6 @@ where
     }
 }
 
-#[derive(Clone)]
-struct KeyIv(Bytes, Bytes);
-
 struct SegmentStream<'a> {
     client: Arc<Downloader>,
     url: Url,
