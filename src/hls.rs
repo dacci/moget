@@ -18,6 +18,7 @@ use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, Duration, Sleep};
+use tracing::warn;
 
 type Decryptor = cbc::Decryptor<aes::Aes128>;
 
@@ -255,6 +256,7 @@ struct SegmentStream<'a> {
     url: Url,
     sleep: Option<Pin<Box<Sleep>>>,
     request: Option<BoxFuture<'a, Result<MediaPlaylist>>>,
+    valid: bool,
     end_list: bool,
     iter: Option<IntoIter<Segment>>,
     seq: Option<u64>,
@@ -269,6 +271,7 @@ impl<'a> SegmentStream<'a> {
             url,
             sleep: None,
             request: None,
+            valid: false,
             end_list: false,
             iter: None,
             seq: None,
@@ -292,6 +295,7 @@ impl<'a> SegmentStream<'a> {
             bar.inc_length(len);
         }
 
+        self.valid = true;
         self.end_list = end_list;
         self.iter = Some(vec.into_iter());
 
@@ -431,7 +435,14 @@ impl Stream for SegmentStream<'_> {
                         self.request.take();
                         playlist
                     }
-                    Poll::Ready(Err(e)) => break Poll::Ready(Some(Err(e))),
+                    Poll::Ready(Err(e)) => {
+                        if self.valid {
+                            warn!("{e}");
+                            break Poll::Ready(None);
+                        } else {
+                            break Poll::Ready(Some(Err(e)));
+                        }
+                    }
                     Poll::Pending => break Poll::Pending,
                 };
 
