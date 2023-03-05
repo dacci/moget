@@ -36,8 +36,10 @@ Options:
           Discard input until the timestamps reach position
   -f, --fast-start
           Run a second pass moving the index (moov atom) to the beginning of the file
+      --worst
+          Choose the lowest quality stream when multiple streams are found
   -h, --help
-          Print help information
+          Print help
   -V, --version
-          Print version information
+          Print version
 ```

@@ -25,14 +25,28 @@ impl Clip {
         self.video.as_deref().and_then(Media::best_of)
     }
 
+    fn worst_video(&self) -> Option<&Media> {
+        self.video.as_deref().and_then(Media::worst_of)
+    }
+
     fn best_audio(&self) -> Option<&Media> {
         self.audio.as_deref().and_then(Media::best_of)
     }
 
-    fn iter(&self) -> IntoIter<&Media> {
-        self.best_video()
+    fn worst_audio(&self) -> Option<&Media> {
+        self.audio.as_deref().and_then(Media::worst_of)
+    }
+
+    fn iter(&self, worst: bool) -> IntoIter<&Media> {
+        let (video, audio) = if worst {
+            (self.worst_video(), self.worst_audio())
+        } else {
+            (self.best_video(), self.best_audio())
+        };
+
+        video
             .into_iter()
-            .chain(self.best_audio())
+            .chain(audio)
             .collect::<Vec<_>>()
             .into_iter()
     }
@@ -64,6 +78,10 @@ struct Media {
 impl Media {
     fn best_of(streams: &[Self]) -> Option<&Self> {
         streams.iter().max_by_key(|s| s.bitrate)
+    }
+
+    fn worst_of(streams: &[Self]) -> Option<&Self> {
+        streams.iter().min_by_key(|s| s.bitrate)
     }
 
     fn resolve(&self, clip_url: &Url) -> Result<Vec<Url>> {
@@ -128,7 +146,7 @@ pub(super) async fn main<'a>(
 
     let mut len = 0;
     let vec = clip
-        .iter()
+        .iter(args.worst)
         .map(|media| {
             media.resolve(&clip_url).map(|urls| {
                 len += urls.len();

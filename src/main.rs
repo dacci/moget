@@ -179,6 +179,10 @@ pub struct Args {
     /// Run a second pass moving the index (moov atom) to the beginning of the file.
     #[arg(short, long)]
     fast_start: bool,
+
+    /// Choose the lowest quality stream when multiple streams are found.
+    #[arg(long)]
+    worst: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]

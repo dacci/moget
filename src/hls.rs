@@ -32,7 +32,7 @@ pub(super) async fn main<'a>(
         .url
         .parse()
         .with_context(|| format!("failed to parse URL `{}`", args.url))?;
-    let media = resolve_playlist(&client, &url).await?;
+    let media = resolve_playlist(&client, &url, args.worst).await?;
 
     let vec = media
         .into_iter()
@@ -56,24 +56,26 @@ pub(super) async fn main<'a>(
 async fn resolve_playlist<'a>(
     client: &Arc<Downloader>,
     url: &Url,
+    worst: bool,
 ) -> Result<Vec<SegmentStream<'a>>> {
     let playlist = get_playlist(client, url.clone()).await?;
 
     match playlist {
         Playlist::MasterPlaylist(playlist) => {
-            let best = playlist
-                .variants
-                .iter()
-                .filter(|v| !v.is_i_frame)
-                .max_by_key(|v| v.bandwidth)
-                .ok_or_else(|| anyhow!("no suitable variant found in the master playlist"))?;
+            let candidates = playlist.variants.iter().filter(|v| !v.is_i_frame);
+            let stream = if worst {
+                candidates.min_by_key(|v| v.bandwidth)
+            } else {
+                candidates.max_by_key(|v| v.bandwidth)
+            }
+            .ok_or_else(|| anyhow!("no suitable variant found in the master playlist"))?;
 
-            let alt_video = best
+            let alt_video = stream
                 .video
                 .as_ref()
                 .and_then(|n| find_alternative(&playlist, n))
                 .and_then(|a| a.uri.as_ref());
-            let alt_audio = best
+            let alt_audio = stream
                 .audio
                 .as_ref()
                 .and_then(|n| find_alternative(&playlist, n))
@@ -89,7 +91,7 @@ async fn resolve_playlist<'a>(
                 alt_video
                     .into_iter()
                     .chain(alt_audio.into_iter())
-                    .chain(Some(&best.uri))
+                    .chain(Some(&stream.uri))
                     .collect::<Vec<_>>()
                     .into_iter()
             }
