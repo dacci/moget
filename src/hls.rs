@@ -185,6 +185,9 @@ where
 {
     use cipher::BlockDecryptMut;
 
+    let mut src = io::BufReader::new(src);
+    let mut dest = io::BufWriter::new(dest);
+
     let mut prev = None;
     loop {
         let mut block = aes::Block::from([0; 16]);
@@ -200,15 +203,14 @@ where
         }
     }
 
-    match prev {
-        None => Ok(()),
-        Some(mut block) => {
-            let block = dec
-                .decrypt_padded_mut::<block_padding::Pkcs7>(&mut block)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            dest.write_all(block).await
-        }
+    if let Some(mut block) = prev {
+        let block = dec
+            .decrypt_padded_mut::<block_padding::Pkcs7>(&mut block)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        dest.write_all(block).await?;
     }
+
+    dest.flush().await
 }
 
 #[derive(Clone)]

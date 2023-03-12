@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
-use tokio::io;
+use tokio::io::{self, AsyncWriteExt};
 use tracing::debug;
 
 #[derive(serde::Deserialize)]
@@ -189,8 +189,9 @@ async fn download_merge(
     let (file, path) = tempfile_in(".")
         .await
         .context("failed to create temporary file for merge")?;
+    let file = io::BufWriter::new(file);
 
-    stream::iter(urls)
+    let mut file = stream::iter(urls)
         .map(|url| {
             let this = Arc::clone(client);
             this.download(url)
@@ -202,6 +203,7 @@ async fn download_merge(
             Ok(dest)
         })
         .await?;
+    file.flush().await?;
 
     Ok(path)
 }

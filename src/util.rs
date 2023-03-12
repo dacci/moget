@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, BufWriter};
 
 pub(crate) struct Downloader {
     client: ClientWithMiddleware,
@@ -96,13 +96,17 @@ impl Downloader {
                         .error_for_status()
                         .with_context(|| format!("failed to request to {url}"))?;
 
-                    let (mut file, path) = tempfile_in(".")
+                    let (file, path) = tempfile_in(".")
                         .await
                         .context("failed to create temporary file for download")?;
+                    let mut file = BufWriter::new(file);
 
                     loop {
                         match res.chunk().await {
-                            Ok(None) => return Ok(path),
+                            Ok(None) => {
+                                file.flush().await?;
+                                return Ok(path);
+                            }
                             Ok(Some(bytes)) => file
                                 .write_all(&bytes)
                                 .await
