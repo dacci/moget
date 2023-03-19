@@ -4,7 +4,6 @@ mod vimeo;
 
 use anyhow::{bail, Context as _, Result};
 use clap::Parser;
-use futures::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Url;
 use std::path::PathBuf;
@@ -31,7 +30,12 @@ fn main() -> Result<()> {
         .enable_all()
         .build()
         .unwrap()
-        .block_on(async_main(args))
+        .block_on(async {
+            tokio::select! {
+                r = signal() => r.context("Failed to receive signal"),
+                r = async_main(args) => r,
+            }
+        })
 }
 
 async fn async_main(args: Args) -> Result<()> {
@@ -54,18 +58,10 @@ async fn async_main(args: Args) -> Result<()> {
         protocol => protocol,
     };
 
-    let fut = match protocol {
+    let (files, output) = match protocol {
         Protocol::Auto => bail!("protocol could not be detected"),
-        Protocol::Vimeo => vimeo::main(&args, &cx).boxed(),
-        Protocol::Hls => hls::main(&args, &cx).boxed(),
-    };
-
-    let (files, output) = tokio::select! {
-        r = fut => r?,
-        r = signal() => match r {
-            Ok(_) => bail!("Ctrl+C"),
-            Err(e) => return Err(e.into()),
-        },
+        Protocol::Vimeo => vimeo::main(&args, &cx).await?,
+        Protocol::Hls => hls::main(&args, &cx).await?,
     };
 
     let mut command = Command::new("ffmpeg");
