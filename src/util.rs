@@ -18,7 +18,6 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 
 pub(crate) struct Downloader {
     client: ClientWithMiddleware,
-    raw_client: Client,
     retry_policy: Option<ExponentialBackoff>,
 }
 
@@ -55,7 +54,7 @@ impl Downloader {
 
         let raw_client = builder.build()?;
 
-        let mut builder = reqwest_middleware::ClientBuilder::new(raw_client.clone());
+        let mut builder = reqwest_middleware::ClientBuilder::new(raw_client);
 
         let retry_policy = if 0 < args.retry {
             let retry_policy = reqwest_retry::policies::ExponentialBackoffBuilder::default()
@@ -70,7 +69,6 @@ impl Downloader {
 
         Ok(Self {
             client: builder.build(),
-            raw_client,
             retry_policy,
         })
     }
@@ -86,11 +84,11 @@ impl Downloader {
     }
 
     pub async fn download(self: Arc<Self>, url: Url) -> Result<TempPath> {
-        let request = self.raw_client.get(url.clone()).build()?;
+        let request = self.client.get(url.clone()).build()?;
 
         let mut n_past_retries = 0;
         loop {
-            let e = match self.raw_client.execute(request.try_clone().unwrap()).await {
+            let e = match self.client.execute(request.try_clone().unwrap()).await {
                 Ok(res) => {
                     let mut res = res
                         .error_for_status()
