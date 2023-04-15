@@ -10,12 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - id: metadata
-        name: Fetch Dependabot metadata
-        uses: dependabot/fetch-metadata@v1
-
-      - if: ${{ steps.metadata.outputs.dependency-type == 'direct:production' }}
-        name: Merge Dependabot PR
+      - name: Merge Dependabot PR
         run: gh pr merge --auto --merge "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
