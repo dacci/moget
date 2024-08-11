@@ -1,5 +1,4 @@
 use anyhow::{anyhow, bail, Context, Error, Result};
-use chrono::Utc;
 use futures::prelude::*;
 use reqwest::{Client, IntoUrl, Proxy, Url};
 use reqwest_middleware::ClientWithMiddleware;
@@ -11,7 +10,7 @@ use std::iter::StepBy;
 use std::ops::{Deref, Range};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -87,6 +86,7 @@ impl Downloader {
         let request = self.client.get(url.clone()).build()?;
 
         let mut n_past_retries = 0;
+        let start_time = SystemTime::now();
         loop {
             let e = match self.client.execute(request.try_clone().unwrap()).await {
                 Ok(res) => {
@@ -122,9 +122,11 @@ impl Downloader {
                 return Err(e);
             };
 
-            match policy.should_retry(n_past_retries) {
+            match policy.should_retry(start_time, n_past_retries) {
                 RetryDecision::Retry { execute_after } => {
-                    let duration = (execute_after - Utc::now()).to_std()?;
+                    let duration = execute_after
+                        .duration_since(SystemTime::now())
+                        .unwrap_or_default();
                     tracing::warn!(
                         "Retry attempt #{}. Sleeping {:?} before the next attempt",
                         n_past_retries,

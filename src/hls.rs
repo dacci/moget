@@ -452,8 +452,7 @@ impl Stream for SegmentStream<'_> {
                 match self.feed_playlist(playlist) {
                     Err(e) => break Poll::Ready(Some(Err(e))),
                     Ok(0) => {
-                        self.sleep =
-                            Some(Box::pin(sleep(Duration::from_secs_f32(target_duration))));
+                        self.sleep = Some(Box::pin(sleep(Duration::from_secs(target_duration))));
                         continue;
                     }
                     Ok(_) => {}

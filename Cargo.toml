@@ -14,16 +14,15 @@ base64 = "0.22.1"
 block-padding = { version = "0.3.2", features = ["std"] }
 bytes = "1.4.0"
 cbc = { version = "0.1.2", features = ["std"] }
-chrono = { version = "0.4.23", default-features = false, features = ["clock"] }
 cipher = { version = "0.4.3", features = ["std"] }
 clap = { version = "4.1.8", features = ["derive"] }
 futures = { version = "0.3.26", default-features = false, features = ["std"] }
 indicatif = "0.17.3"
-m3u8-rs = "5.0.3"
-reqwest = { version = "0.11.14", features = ["brotli", "deflate", "gzip", "json", "socks"] }
-reqwest-middleware = "0.2.0"
-reqwest-retry = "0.2.1"
-retry-policies = "0.1.2"
+m3u8-rs = "6.0.0"
+reqwest = { version = "0.12.5", features = ["brotli", "deflate", "gzip", "json", "socks"] }
+reqwest-middleware = "0.3.3"
+reqwest-retry = "0.6.1"
+retry-policies = "0.4.0"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_urlencoded = "0.7.1"
 tempfile = "3.4.0"
