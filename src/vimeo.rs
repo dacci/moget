@@ -1,5 +1,6 @@
 use crate::util::{tempfile_in, Downloader};
 use anyhow::{Context, Result};
+use base64::prelude::*;
 use futures::prelude::*;
 use indicatif::ProgressBar;
 use reqwest::Url;
@@ -84,31 +85,35 @@ impl Media {
         streams.iter().min_by_key(|s| s.bitrate)
     }
 
-    fn resolve(&self, clip_url: &Url) -> Result<Vec<Url>> {
+    fn resolve(&self, clip_url: &Url, base64_init: bool) -> Result<Vec<Source>> {
         let base_url = clip_url
             .join(&self.base_url)
             .with_context(|| format!("failed to build media URL from `{}`", self.base_url))?;
-        let mut urls = vec![base_url.join(&self.init_segment).with_context(|| {
-            format!(
-                "failed to build init segment URL from `{}`",
-                self.init_segment
-            )
-        })?];
+
+        let mut urls = Vec::with_capacity(self.segments.len() + 2);
+
+        let init_segment = if base64_init {
+            Source::Base64(self.init_segment.as_str())
+        } else {
+            Source::Url(base_url.join(&self.init_segment).with_context(|| {
+                format!(
+                    "failed to build init segment URL from `{}`",
+                    self.init_segment
+                )
+            })?)
+        };
+        urls.push(init_segment);
 
         if let Some(url) = &self.index_segment {
-            urls.push(
-                base_url
-                    .join(url)
-                    .with_context(|| format!("failed build index segment URL from `{url}`"))?,
-            );
+            urls.push(Source::Url(base_url.join(url).with_context(|| {
+                format!("failed build index segment URL from `{url}`")
+            })?));
         }
 
         for segment in &self.segments {
-            urls.push(
-                base_url.join(&segment.url).with_context(|| {
-                    format!("failed to build segment URL from `{}`", segment.url)
-                })?,
-            );
+            urls.push(Source::Url(base_url.join(&segment.url).with_context(
+                || format!("failed to build segment URL from `{}`", segment.url),
+            )?));
         }
 
         Ok(urls)
@@ -123,6 +128,27 @@ struct Segment {
     // size: u64,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(default)]
+struct UrlParams {
+    query_string_ranges: u8,
+    base64_init: u8,
+}
+
+impl Default for UrlParams {
+    fn default() -> Self {
+        Self {
+            query_string_ranges: 1,
+            base64_init: 1,
+        }
+    }
+}
+
+enum Source<'a> {
+    Url(Url),
+    Base64(&'a str),
+}
+
 pub(super) async fn main<'a>(
     args: &'a super::Args,
     cx: &'a super::Context,
@@ -130,8 +156,15 @@ pub(super) async fn main<'a>(
     let client = Downloader::new(args).context("failed to create HTTP client")?;
     let client = Arc::new(client);
 
-    let master_url = build_master_url(&args.url)
+    let master_url: Url = args
+        .url
+        .parse()
         .with_context(|| format!("failed to build master URL from `{}`", args.url))?;
+    let params: UrlParams = if let Some(query) = master_url.query() {
+        serde_urlencoded::from_str(query).context("illegal query params")?
+    } else {
+        Default::default()
+    };
 
     let clip: Clip = client
         .get(master_url.clone())
@@ -148,10 +181,12 @@ pub(super) async fn main<'a>(
     let vec = clip
         .iter(args.worst)
         .map(|media| {
-            media.resolve(&clip_url).map(|urls| {
-                len += urls.len();
-                download_merge(&client, urls, args.parallel_max, &cx.progress)
-            })
+            media
+                .resolve(&clip_url, params.base64_init == 1)
+                .map(|urls| {
+                    len += urls.len();
+                    download_merge(&client, urls, args.parallel_max, &cx.progress)
+                })
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -168,21 +203,9 @@ pub(super) async fn main<'a>(
     Ok((files, output))
 }
 
-fn build_master_url(url: &str) -> Result<Url> {
-    let mut url: Url = url.parse()?;
-
-    url.query_pairs_mut()
-        .clear()
-        .append_pair("query_string_ranges", "1")
-        .append_pair("base64_init", "0")
-        .finish();
-
-    Ok(url)
-}
-
 async fn download_merge(
     client: &Arc<Downloader>,
-    urls: Vec<Url>,
+    urls: Vec<Source<'_>>,
     parallel_max: usize,
     progress: &ProgressBar,
 ) -> Result<TempPath> {
@@ -192,9 +215,12 @@ async fn download_merge(
     let file = io::BufWriter::new(file);
 
     let mut file = stream::iter(urls)
-        .map(|url| {
-            let this = Arc::clone(client);
-            this.download(url)
+        .map(|source| match source {
+            Source::Url(url) => {
+                let this = Arc::clone(client);
+                this.download(url).boxed()
+            }
+            Source::Base64(data) => decode_write(data).boxed(),
         })
         .buffered(parallel_max)
         .try_fold(file, |mut dest, src| async move {
@@ -203,6 +229,22 @@ async fn download_merge(
             Ok(dest)
         })
         .await?;
+    file.flush().await?;
+
+    Ok(path)
+}
+
+async fn decode_write(data: &str) -> Result<TempPath> {
+    let seg = BASE64_STANDARD
+        .decode(data)
+        .context("failed to decode segment")?;
+
+    let (file, path) = tempfile_in(".")
+        .await
+        .context("failed to create temporary file for decode")?;
+
+    let mut file = io::BufWriter::new(file);
+    file.write_all(&seg).await?;
     file.flush().await?;
 
     Ok(path)
