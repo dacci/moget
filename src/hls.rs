@@ -15,7 +15,7 @@ use std::task::{Context, Poll};
 use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, Duration, Sleep};
 use tracing::warn;
@@ -37,7 +37,9 @@ pub(super) async fn main<'a>(
 
     let vec = media
         .into_iter()
-        .map(|stream| stream.download_merge(&client, args.parallel_max, &cx.progress))
+        .map(|stream| {
+            stream.download_merge(&client, args.parallel_max, args.skip_bytes, &cx.progress)
+        })
         .collect::<Vec<_>>();
 
     cx.start_progress(0);
@@ -156,7 +158,12 @@ fn parse_iv(src: &str) -> Result<Vec<u8>> {
         .collect()
 }
 
-async fn decrypt_merge<W>(src: impl AsRef<Path>, dec: Option<Decryptor>, dest: &mut W) -> Result<()>
+async fn decrypt_merge<W>(
+    src: impl AsRef<Path>,
+    skip: Option<u64>,
+    dec: Option<Decryptor>,
+    dest: &mut W,
+) -> Result<()>
 where
     W: io::AsyncWrite + Unpin + ?Sized,
 {
@@ -166,10 +173,14 @@ where
         .with_context(|| format!("failed to open `{}`", src.display()))?;
 
     if let Some(dec) = dec {
-        decrypt_copy(dec, &mut src_file, dest)
+        decrypt_copy(dec, &mut src_file, skip, dest)
             .await
             .with_context(|| format!("failed to merge `{}`", src.display()))?;
     } else {
+        if let Some(len) = skip {
+            src_file.seek(SeekFrom::Start(len)).await?;
+        }
+
         io::copy(&mut src_file, dest)
             .await
             .with_context(|| format!("failed to merge `{}`", src.display()))?;
@@ -178,7 +189,12 @@ where
     Ok(())
 }
 
-async fn decrypt_copy<R, W>(mut dec: Decryptor, src: &mut R, dest: &mut W) -> io::Result<()>
+async fn decrypt_copy<R, W>(
+    mut dec: Decryptor,
+    src: &mut R,
+    skip: Option<u64>,
+    dest: &mut W,
+) -> io::Result<()>
 where
     R: io::AsyncRead + Unpin + ?Sized,
     W: io::AsyncWrite + Unpin + ?Sized,
@@ -186,6 +202,7 @@ where
     use cipher::BlockDecryptMut;
 
     let mut src = io::BufReader::new(src);
+    let mut skip = skip.unwrap_or_default();
     let mut dest = io::BufWriter::new(dest);
 
     let mut prev = None;
@@ -199,7 +216,16 @@ where
 
         if let Some(mut block) = prev.replace(block) {
             dec.decrypt_block_mut(&mut block);
-            dest.write_all(&block).await?;
+
+            if skip > 0 {
+                let len = block.len().min(skip as _);
+                if len > 0 {
+                    dest.write_all(&block[len..]).await?;
+                }
+                skip -= len as u64;
+            } else {
+                dest.write_all(&block).await?;
+            }
         }
     }
 
@@ -389,6 +415,7 @@ impl<'a> SegmentStream<'a> {
         mut self,
         client: &Arc<Downloader>,
         parallel_max: usize,
+        skip: Option<u64>,
         progress: &indicatif::ProgressBar,
     ) -> Result<TempPath> {
         let (file, path) = tempfile_in(".")
@@ -406,7 +433,7 @@ impl<'a> SegmentStream<'a> {
                     None
                 };
 
-                decrypt_merge(src, dec, &mut dest).await?;
+                decrypt_merge(src, skip, dec, &mut dest).await?;
                 progress.inc(1);
                 Ok(dest)
             })

@@ -38,6 +38,8 @@ Options:
           Run a second pass moving the index (moov atom) to the beginning of the file
       --worst
           Choose the lowest quality stream when multiple streams are found
+      --skip-bytes <LEN>
+          Skip LEN bytes from the beginning of each segment
   -h, --help
           Print help
   -V, --version

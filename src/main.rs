@@ -179,6 +179,10 @@ pub struct Args {
     /// Choose the lowest quality stream when multiple streams are found.
     #[arg(long)]
     worst: bool,
+
+    /// Skip LEN bytes from the beginning of each segment.
+    #[arg(long, value_name = "LEN")]
+    skip_bytes: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]

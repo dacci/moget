@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
-use tokio::io::{self, AsyncWriteExt};
+use tokio::io::{self, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tracing::debug;
 
 #[derive(serde::Deserialize)]
@@ -185,7 +185,13 @@ pub(super) async fn main<'a>(
                 .resolve(&clip_url, params.base64_init == 1)
                 .map(|urls| {
                     len += urls.len();
-                    download_merge(&client, urls, args.parallel_max, &cx.progress)
+                    download_merge(
+                        &client,
+                        urls,
+                        args.parallel_max,
+                        args.skip_bytes,
+                        &cx.progress,
+                    )
                 })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -207,6 +213,7 @@ async fn download_merge(
     client: &Arc<Downloader>,
     urls: Vec<Source<'_>>,
     parallel_max: usize,
+    skip: Option<u64>,
     progress: &ProgressBar,
 ) -> Result<TempPath> {
     let (file, path) = tempfile_in(".")
@@ -224,7 +231,7 @@ async fn download_merge(
         })
         .buffered(parallel_max)
         .try_fold(file, |mut dest, src| async move {
-            merge(src, &mut dest).await?;
+            merge(src, skip, &mut dest).await?;
             progress.inc(1);
             Ok(dest)
         })
@@ -252,12 +259,18 @@ async fn decode_write(data: &str) -> Result<TempPath> {
 
 async fn merge(
     src: impl AsRef<Path>,
+    skip: Option<u64>,
     dest: &mut (impl io::AsyncWrite + Unpin + ?Sized),
 ) -> Result<()> {
     let src = src.as_ref();
     let mut src_file = File::open(src)
         .await
         .with_context(|| format!("failed to open `{}`", src.display()))?;
+
+    if let Some(len) = skip {
+        src_file.seek(SeekFrom::Start(len)).await?;
+    }
+
     io::copy(&mut src_file, dest)
         .await
         .with_context(|| format!("failed to merge `{}`", src.display()))?;
