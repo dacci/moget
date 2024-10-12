@@ -31,8 +31,10 @@ pub(super) async fn main<'a>(
 
     let url: Url = args
         .url
+        .as_ref()
+        .unwrap()
         .parse()
-        .with_context(|| format!("failed to parse URL `{}`", args.url))?;
+        .with_context(|| format!("failed to parse URL `{}`", args.url.as_ref().unwrap()))?;
     let media = resolve_playlist(&client, &url, args.worst).await?;
 
     let vec = media

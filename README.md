@@ -6,10 +6,10 @@
 $ moget --help
 Video file downloader
 
-Usage: moget [OPTIONS] <URL>
+Usage: moget [OPTIONS] [URL]
 
 Arguments:
-  <URL>  URL of the movie file to download
+  [URL]  URL of the movie file to download
 
 Options:
       --protocol <PROTOCOL>
@@ -40,6 +40,8 @@ Options:
           Choose the lowest quality stream when multiple streams are found
       --skip-bytes <LEN>
           Skip LEN bytes from the beginning of each segment
+      --generate-completion <SHELL>
+          Generate shell completions [possible values: bash, elvish, fish, powershell, zsh]
   -h, --help
           Print help
   -V, --version

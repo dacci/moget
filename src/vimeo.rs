@@ -156,10 +156,12 @@ pub(super) async fn main<'a>(
     let client = Downloader::new(args).context("failed to create HTTP client")?;
     let client = Arc::new(client);
 
-    let master_url: Url = args
-        .url
-        .parse()
-        .with_context(|| format!("failed to build master URL from `{}`", args.url))?;
+    let master_url: Url = args.url.as_ref().unwrap().parse().with_context(|| {
+        format!(
+            "failed to build master URL from `{}`",
+            args.url.as_ref().unwrap()
+        )
+    })?;
     let params: UrlParams = if let Some(query) = master_url.query() {
         serde_urlencoded::from_str(query).context("illegal query params")?
     } else {

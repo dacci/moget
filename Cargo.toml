@@ -15,7 +15,8 @@ block-padding = { version = "0.3.2", features = ["std"] }
 bytes = "1.4.0"
 cbc = { version = "0.1.2", features = ["std"] }
 cipher = { version = "0.4.3", features = ["std"] }
-clap = { version = "4.1.8", features = ["derive"] }
+clap = { version = "4.5.20", features = ["derive"] }
+clap_complete = "4.5.33"
 futures = { version = "0.3.26", default-features = false, features = ["std"] }
 indicatif = "0.17.3"
 m3u8-rs = "6.0.0"

@@ -4,6 +4,7 @@ mod vimeo;
 
 use anyhow::{bail, Context as _, Result};
 use clap::Parser;
+use clap::ValueHint;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Url;
 use std::path::PathBuf;
@@ -26,6 +27,17 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    if let Some(shell) = args.generate_completion {
+        use clap::CommandFactory;
+        clap_complete::generate(
+            shell,
+            &mut Args::command(),
+            env!("CARGO_BIN_NAME"),
+            &mut std::io::stdout(),
+        );
+        return Ok(());
+    }
+
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -43,10 +55,10 @@ async fn async_main(args: Args) -> Result<()> {
 
     let protocol = match args.protocol {
         Protocol::Auto => {
-            let url: Url = args
-                .url
-                .parse()
-                .with_context(|| format!("failed to parse URL `{}`", args.url))?;
+            let url: Url =
+                args.url.as_ref().unwrap().parse().with_context(|| {
+                    format!("failed to parse URL `{}`", args.url.as_ref().unwrap())
+                })?;
             if url.path().ends_with(".json") {
                 Protocol::Vimeo
             } else if url.path().ends_with(".m3u8") {
@@ -126,14 +138,15 @@ async fn signal() -> io::Result<()> {
 #[command(version, about)]
 pub struct Args {
     /// URL of the movie file to download.
-    url: String,
+    #[arg(required_unless_present = "generate_completion", value_hint = ValueHint::Url)]
+    url: Option<String>,
 
     /// Protocol to use to communicate with the server.
     #[arg(long, default_value = "auto")]
     protocol: Protocol,
 
     /// Write output to FILE.
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath)]
     output: Option<PathBuf>,
 
     /// Extra header to include in the request.
@@ -183,6 +196,10 @@ pub struct Args {
     /// Skip LEN bytes from the beginning of each segment.
     #[arg(long, value_name = "LEN")]
     skip_bytes: Option<u64>,
+
+    /// Generate shell completions.
+    #[arg(long, value_name = "SHELL", exclusive = true)]
+    generate_completion: Option<clap_complete::aot::Shell>,
 }
 
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]
