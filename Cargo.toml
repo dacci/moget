@@ -8,28 +8,28 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aes = "0.8.2"
-anyhow = "1.0.69"
+aes = "0.8.4"
+anyhow = "1.0.95"
 base64 = "0.22.1"
-block-padding = { version = "0.3.2", features = ["std"] }
-bytes = "1.4.0"
+block-padding = { version = "0.3.3", features = ["std"] }
+bytes = "1.9.0"
 cbc = { version = "0.1.2", features = ["std"] }
-cipher = { version = "0.4.3", features = ["std"] }
-clap = { version = "4.5.20", features = ["derive"] }
-clap_complete = "4.5.33"
-futures = { version = "0.3.26", default-features = false, features = ["std"] }
-indicatif = "0.17.3"
+cipher = { version = "0.4.4", features = ["std"] }
+clap = { version = "4.5.23", features = ["derive"] }
+clap_complete = "4.5.40"
+futures = { version = "0.3.31", default-features = false, features = ["std"] }
+indicatif = "0.17.9"
 m3u8-rs = "6.0.0"
-reqwest = { version = "0.12.5", features = ["brotli", "deflate", "gzip", "json", "socks"] }
-reqwest-middleware = "0.3.3"
-reqwest-retry = "0.6.1"
+reqwest = { version = "0.12.11", features = ["brotli", "deflate", "gzip", "json", "socks"] }
+reqwest-middleware = "0.4.0"
+reqwest-retry = "0.7.0"
 retry-policies = "0.4.0"
-serde = { version = "1.0.152", features = ["derive"] }
+serde = { version = "1.0.217", features = ["derive"] }
 serde_urlencoded = "0.7.1"
-tempfile = "3.4.0"
-tokio = { version = "1.26.0", features = ["full"] }
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+tempfile = "3.14.0"
+tokio = { version = "1.42.0", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 [profile.release]
 codegen-units = 1
