@@ -1,9 +1,9 @@
-use anyhow::{anyhow, bail, Context, Error, Result};
+use anyhow::{Context, Error, Result, anyhow, bail};
 use futures::prelude::*;
 use reqwest::{Client, IntoUrl, Proxy, Url};
 use reqwest_middleware::ClientWithMiddleware;
-use reqwest_retry::policies::ExponentialBackoff;
 use reqwest_retry::RetryPolicy;
+use reqwest_retry::policies::ExponentialBackoff;
 use retry_policies::RetryDecision;
 use std::borrow::Cow;
 use std::iter::StepBy;

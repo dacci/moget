@@ -1,5 +1,5 @@
-use crate::util::{tempfile_in, Downloader, SplitBy};
-use anyhow::{anyhow, bail, Context as _, Result};
+use crate::util::{Downloader, SplitBy, tempfile_in};
+use anyhow::{Context as _, Result, anyhow, bail};
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use futures::prelude::*;
@@ -17,7 +17,7 @@ use tempfile::TempPath;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tokio::sync::{Notify, RwLock};
-use tokio::time::{sleep, Duration, Sleep};
+use tokio::time::{Duration, Sleep, sleep};
 use tracing::warn;
 
 type Decryptor = cbc::Decryptor<aes::Aes128>;
@@ -332,7 +332,7 @@ impl<'a> SegmentStream<'a> {
         Ok(len)
     }
 
-    fn get_playlist(&self) -> impl Future<Output = Result<MediaPlaylist>> {
+    fn get_playlist(&self) -> impl Future<Output = Result<MediaPlaylist>> + use<> {
         self.client
             .get(self.url.clone())
             .send()

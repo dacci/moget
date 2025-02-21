@@ -1,4 +1,4 @@
-use crate::util::{tempfile_in, Downloader};
+use crate::util::{Downloader, tempfile_in};
 use anyhow::{Context, Result};
 use base64::prelude::*;
 use futures::prelude::*;

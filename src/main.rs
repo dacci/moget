@@ -2,7 +2,7 @@ mod hls;
 mod util;
 mod vimeo;
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use clap::Parser;
 use clap::ValueHint;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -101,7 +101,7 @@ async fn async_main(args: Args) -> Result<()> {
 
 #[cfg(unix)]
 async fn signal() -> io::Result<()> {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
 
     let mut interrupt = signal(SignalKind::interrupt())?;
     let mut terminate = signal(SignalKind::terminate())?;
