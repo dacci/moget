@@ -51,7 +51,7 @@ pub(super) async fn main<'a>(
     let output = if let Some(output) = &args.output {
         output.into()
     } else {
-        let output = url.path_segments().unwrap().last().unwrap();
+        let output = url.path_segments().unwrap().next_back().unwrap();
         Path::new(output).with_extension("mp4").into()
     };
 
