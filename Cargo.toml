@@ -9,25 +9,25 @@ license = "MIT"
 
 [dependencies]
 aes = "0.8.4"
-anyhow = "1.0.98"
+anyhow = "1.0.99"
 base64 = "0.22.1"
 block-padding = { version = "0.3.3", features = ["std"] }
 bytes = "1.10.1"
 cbc = { version = "0.1.2", features = ["std"] }
 cipher = { version = "0.4.4", features = ["std"] }
-clap = { version = "4.5.38", features = ["derive"] }
-clap_complete = "4.5.50"
+clap = { version = "4.5.47", features = ["derive"] }
+clap_complete = "4.5.57"
 futures = { version = "0.3.31", default-features = false, features = ["std"] }
-indicatif = "0.17.11"
+indicatif = "0.18.0"
 m3u8-rs = "6.0.0"
-reqwest = { version = "0.12.15", features = ["brotli", "deflate", "gzip", "json", "socks"] }
+reqwest = { version = "0.12.23", features = ["brotli", "deflate", "gzip", "json", "socks"] }
 reqwest-middleware = "0.4.2"
 reqwest-retry = "0.7.0"
-retry-policies = "0.5.0"
+retry-policies = "0.5.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_urlencoded = "0.7.1"
-tempfile = "3.20.0"
-tokio = { version = "1.45.0", features = ["full"] }
+tempfile = "3.21.0"
+tokio = { version = "1.47.1", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 
