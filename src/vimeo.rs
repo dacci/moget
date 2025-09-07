@@ -85,7 +85,7 @@ impl Media {
         streams.iter().min_by_key(|s| s.bitrate)
     }
 
-    fn resolve(&self, clip_url: &Url, base64_init: bool) -> Result<Vec<Source>> {
+    fn resolve(&self, clip_url: &Url, base64_init: bool) -> Result<Vec<Source<'_>>> {
         let base_url = clip_url
             .join(&self.base_url)
             .with_context(|| format!("failed to build media URL from `{}`", self.base_url))?;

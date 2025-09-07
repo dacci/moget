@@ -354,10 +354,10 @@ impl<'a> SegmentStream<'a> {
         let mut key_iv = None;
 
         for (seg, seq) in playlist.segments.into_iter().zip(playlist.media_sequence..) {
-            if let Some(pos) = self.seq {
-                if seq <= pos {
-                    continue;
-                }
+            if let Some(pos) = self.seq
+                && seq <= pos
+            {
+                continue;
             }
 
             if let Some(key_info) = seg.key {
