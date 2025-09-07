@@ -35,6 +35,14 @@ impl Downloader {
                 headers.insert(k, v);
             }
         }
+        if let Some(cookie) = &args.cookie {
+            headers.insert(
+                reqwest::header::COOKIE,
+                cookie
+                    .parse()
+                    .map_err(|_| anyhow!("invalid cookie value `{cookie}`"))?,
+            );
+        }
 
         let mut builder = Client::builder().default_headers(headers);
 

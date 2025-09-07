@@ -32,6 +32,8 @@ Options:
           Use the specified proxy
   -U, --proxy-user <user:password>
           Specify the user name and password to use for proxy authentication
+  -b, --cookie <data>
+          Pass the exact data to send to the HTTP server in the Cookie header
   -s, --seek <position>
           Discard input until the timestamps reach position
   -f, --fast-start

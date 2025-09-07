@@ -181,6 +181,10 @@ pub struct Args {
     #[arg(short = 'U', long, value_name = "user:password")]
     proxy_user: Option<String>,
 
+    /// Pass the exact data to send to the HTTP server in the Cookie header.
+    #[arg(short = 'b', long, value_name = "data")]
+    cookie: Option<String>,
+
     /// Discard input until the timestamps reach position.
     #[arg(short, long, value_name = "position")]
     seek: Option<String>,
