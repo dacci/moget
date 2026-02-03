@@ -12,7 +12,7 @@ aes = "0.8.4"
 anyhow = "1.0.99"
 base64 = "0.22.1"
 block-padding = { version = "0.3.3", features = ["std"] }
-bytes = "1.10.1"
+bytes = "1.11.1"
 cbc = { version = "0.1.2", features = ["std"] }
 cipher = { version = "0.4.4", features = ["std"] }
 clap = { version = "4.5.47", features = ["derive"] }
