@@ -89,13 +89,13 @@ async fn resolve_playlist<'a>(
             if alt_video.is_some() && alt_audio.is_some() {
                 alt_video
                     .into_iter()
-                    .chain(alt_audio.into_iter())
+                    .chain(alt_audio)
                     .collect::<Vec<_>>()
                     .into_iter()
             } else {
                 alt_video
                     .into_iter()
-                    .chain(alt_audio.into_iter())
+                    .chain(alt_audio)
                     .chain(Some(&stream.uri))
                     .collect::<Vec<_>>()
                     .into_iter()
@@ -361,7 +361,7 @@ impl<'a> SegmentStream<'a> {
             }
 
             if let Some(key_info) = seg.key {
-                key_iv = self.resolve_key(key_info)?;
+                key_iv = self.resolve_key(key_info, seq)?;
             }
 
             if let Some(map) = seg.map {
@@ -376,7 +376,7 @@ impl<'a> SegmentStream<'a> {
         Ok(vec)
     }
 
-    fn resolve_key(&self, key_info: m3u8_rs::Key) -> Result<Option<KeyIv>> {
+    fn resolve_key(&self, key_info: m3u8_rs::Key, seq: u64) -> Result<Option<KeyIv>> {
         match key_info.method {
             KeyMethod::AES128 => {
                 let url = key_info
@@ -387,11 +387,8 @@ impl<'a> SegmentStream<'a> {
                             .join(&u)
                             .with_context(|| format!("invalid key uri `{u}`"))
                     })?;
-                let iv = key_info
-                    .iv
-                    .ok_or_else(|| anyhow!("IV is required but not provided"))
-                    .and_then(|i| parse_iv(&i))
-                    .map(Bytes::from)?;
+                let iv = key_info.iv.unwrap_or_else(|| format!("0x{seq:032X}"));
+                let iv = parse_iv(&iv).map(Bytes::from)?;
                 let key_iv = KeyIv::new();
 
                 let client = Arc::clone(&self.client);
