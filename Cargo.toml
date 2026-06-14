@@ -9,27 +9,26 @@ license = "MIT"
 
 [dependencies]
 aes = "0.8.4"
-anyhow = "1.0.99"
+anyhow = "1.0.102"
 base64 = "0.22.1"
 block-padding = { version = "0.3.3", features = ["std"] }
 bytes = "1.11.1"
 cbc = { version = "0.1.2", features = ["std"] }
 cipher = { version = "0.4.4", features = ["std"] }
-clap = { version = "4.5.47", features = ["derive"] }
-clap_complete = "4.5.57"
-futures = { version = "0.3.31", default-features = false, features = ["std"] }
-indicatif = "0.18.0"
+clap = { version = "4.6.1", features = ["derive"] }
+clap_complete = "4.6.5"
+futures = { version = "0.3.32", default-features = false, features = ["std"] }
+indicatif = "0.18.4"
 m3u8-rs = "6.0.0"
-reqwest = { version = "0.12.23", features = ["brotli", "deflate", "gzip", "json", "socks"] }
-reqwest-middleware = "0.4.2"
-reqwest-retry = "0.7.0"
-retry-policies = "0.5.1"
-serde = { version = "1.0.219", features = ["derive"] }
+reqwest = { version = "0.13.4", features = ["brotli", "deflate", "gzip", "json", "socks"] }
+reqwest-middleware = "0.5.2"
+reqwest-retry = "0.9.1"
+serde = { version = "1.0.228", features = ["derive"] }
 serde_urlencoded = "0.7.1"
-tempfile = "3.21.0"
-tokio = { version = "1.47.1", features = ["full"] }
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tempfile = "3.27.0"
+tokio = { version = "1.52.3", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [profile.release]
 codegen-units = 1
