@@ -201,7 +201,7 @@ where
     R: io::AsyncRead + Unpin + ?Sized,
     W: io::AsyncWrite + Unpin + ?Sized,
 {
-    use cipher::BlockDecryptMut;
+    use aes::cipher::BlockModeDecrypt;
 
     let mut src = io::BufReader::new(src);
     let mut skip = skip.unwrap_or_default();
@@ -217,7 +217,7 @@ where
         };
 
         if let Some(mut block) = prev.replace(block) {
-            dec.decrypt_block_mut(&mut block);
+            dec.decrypt_block(&mut block);
 
             if skip > 0 {
                 let len = block.len().min(skip as _);
@@ -233,7 +233,7 @@ where
 
     if let Some(mut block) = prev {
         let block = dec
-            .decrypt_padded_mut::<block_padding::Pkcs7>(&mut block)
+            .decrypt_padded::<aes::cipher::block_padding::Pkcs7>(&mut block)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         dest.write_all(block).await?;
     }
@@ -267,7 +267,7 @@ impl IntoFuture for KeyIv {
                 if let Poll::Ready(res) = self.inner.read().await.deref() {
                     match res {
                         Ok((key, iv)) => {
-                            use cipher::KeyIvInit;
+                            use aes::cipher::KeyIvInit;
                             break Ok(Decryptor::new_from_slices(key, iv)?);
                         }
                         Err(e) => break Err(anyhow!("{e}")),

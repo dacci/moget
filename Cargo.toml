@@ -8,13 +8,11 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aes = "0.8.4"
+aes = "0.9.1"
 anyhow = "1.0.102"
 base64 = "0.22.1"
-block-padding = { version = "0.3.3", features = ["std"] }
 bytes = "1.11.1"
-cbc = { version = "0.1.2", features = ["std"] }
-cipher = { version = "0.4.4", features = ["std"] }
+cbc = "0.2.1"
 clap = { version = "4.6.1", features = ["derive"] }
 clap_complete = "4.6.5"
 futures = { version = "0.3.32", default-features = false, features = ["std"] }
