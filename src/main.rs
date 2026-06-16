@@ -21,7 +21,7 @@ fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::builder()
                 .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
                 .from_env()
-                .unwrap(),
+                .expect("Failed to parse environment variable `RUST_LOG`"),
         )
         .init();
 
@@ -41,7 +41,7 @@ fn main() -> Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap()
+        .expect("Failed to create async runtime")
         .block_on(async {
             tokio::select! {
                 r = signal() => r.context("Failed to receive signal"),
