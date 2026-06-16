@@ -2,9 +2,11 @@ use crate::util::{Downloader, tempfile_in};
 use anyhow::{Context, Result};
 use base64::prelude::*;
 use futures::prelude::*;
+use futures::stream::FusedStream as _;
 use indicatif::ProgressBar;
 use reqwest::Url;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::vec::IntoIter;
@@ -221,23 +223,37 @@ async fn download_merge(
     let (file, path) = tempfile_in(".")
         .await
         .context("failed to create temporary file for merge")?;
-    let file = io::BufWriter::new(file);
+    let mut file = io::BufWriter::new(file);
 
-    let mut file = stream::iter(urls)
-        .map(|source| match source {
+    let mut stream = stream::iter(urls)
+        .enumerate()
+        .map(|(seq, source)| match source {
             Source::Url(url) => {
                 let this = Arc::clone(client);
-                this.download(url).boxed()
+                this.download(url).map_ok(move |path| (seq, path)).boxed()
             }
-            Source::Base64(data) => decode_write(data).boxed(),
+            Source::Base64(data) => decode_write(data).map_ok(move |path| (seq, path)).boxed(),
         })
-        .buffered(parallel_max)
-        .try_fold(file, |mut dest, src| async move {
-            merge(src, skip, &mut dest).await?;
-            progress.inc(1);
-            Ok(dest)
-        })
-        .await?;
+        .buffer_unordered(parallel_max)
+        .fuse();
+
+    let mut pending = BTreeMap::new();
+    let mut latest = 0usize;
+    while !stream.is_terminated() {
+        if let Some((seq, path)) = stream.try_next().await? {
+            pending.insert(seq, path);
+        }
+
+        while let Some(first) = pending.first_entry() {
+            if *first.key() == latest {
+                merge(first.remove(), skip, &mut file).await?;
+                progress.inc(1);
+                latest += 1;
+            } else {
+                break;
+            }
+        }
+    }
     file.flush().await?;
 
     Ok(path)

@@ -3,9 +3,11 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use futures::prelude::*;
+use futures::stream::FusedStream as _;
 use m3u8_rs::{AlternativeMedia, KeyMethod, MasterPlaylist, MediaPlaylist, Playlist};
 use reqwest::Url;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::future::IntoFuture;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
@@ -417,26 +419,46 @@ impl<'a> SegmentStream<'a> {
         skip: Option<u64>,
         progress: &indicatif::ProgressBar,
     ) -> Result<TempPath> {
-        let (file, path) = tempfile_in(".")
+        let (mut file, path) = tempfile_in(".")
             .await
             .context("failed to create temporary file for merge")?;
 
         self.set_progress_bar(progress);
 
-        self.map_ok(|seg| seg.download(Arc::clone(client)))
-            .try_buffered(parallel_max)
-            .try_fold(file, |mut dest, (src, key_iv)| async move {
-                let dec = if let Some(key_iv) = key_iv {
-                    Some(key_iv.await?)
-                } else {
-                    None
-                };
-
-                decrypt_merge(src, skip, dec, &mut dest).await?;
-                progress.inc(1);
-                Ok(dest)
+        let mut stream = self
+            .enumerate()
+            .map(|(seq, res)| res.map(|seg| (seq, seg)))
+            .map_ok(|(seq, seg)| {
+                seg.download(Arc::clone(client))
+                    .map_ok(move |(src, key_iv)| (seq, src, key_iv))
             })
-            .await?;
+            .try_buffer_unordered(parallel_max)
+            .fuse();
+
+        let mut pending = BTreeMap::new();
+        let mut latest = 0usize;
+        while !stream.is_terminated() {
+            if let Some((seq, src, key_iv)) = stream.try_next().await? {
+                pending.insert(seq, (src, key_iv));
+            }
+
+            while let Some(e) = pending.first_entry() {
+                if *e.key() == latest {
+                    let (src, key_iv) = e.remove();
+                    let dec = if let Some(key_iv) = key_iv {
+                        Some(key_iv.await?)
+                    } else {
+                        None
+                    };
+
+                    decrypt_merge(src, skip, dec, &mut file).await?;
+                    progress.inc(1);
+                    latest += 1;
+                } else {
+                    break;
+                }
+            }
+        }
 
         Ok(path)
     }
