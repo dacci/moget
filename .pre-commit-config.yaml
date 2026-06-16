@@ -6,7 +6,7 @@ repos:
       - id: clippy
         args: ['--all-features', '--', '-D', 'warnings']
   - repo: https://github.com/dacci/pre-commit
-    rev: v0.1.0
+    rev: v0.2.0
     hooks:
       - id: cargo-test
         args: ['--all-features']
