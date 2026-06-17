@@ -2,7 +2,7 @@ mod hls;
 mod util;
 mod vimeo;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, bail};
 use clap::Parser;
 use clap::ValueHint;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -12,7 +12,19 @@ use std::sync::Arc;
 use tokio::process::Command;
 use tokio::{io, time};
 
-fn main() -> Result<()> {
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error(transparent)]
+    TaskJoin(#[from] tokio::task::JoinError),
+
+    #[error(transparent)]
+    Io(#[from] io::Error),
+
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+}
+
+fn main() -> anyhow::Result<()> {
     use tracing_subscriber::prelude::*;
 
     tracing_subscriber::registry()
@@ -50,7 +62,7 @@ fn main() -> Result<()> {
         })
 }
 
-async fn async_main(args: Args) -> Result<()> {
+async fn async_main(args: Args) -> anyhow::Result<()> {
     let cx = Context::new();
 
     let protocol = match args.protocol {

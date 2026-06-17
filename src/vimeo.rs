@@ -1,5 +1,5 @@
 use crate::util::{Downloader, tempfile_in};
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use base64::prelude::*;
 use futures::prelude::*;
 use futures::stream::FusedStream as _;
@@ -8,11 +8,10 @@ use reqwest::Url;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
-use tokio::io::{self, AsyncSeekExt, AsyncWriteExt, SeekFrom};
+use tokio::io::{self, AsyncSeekExt as _, AsyncWriteExt as _, SeekFrom};
 use tracing::debug;
 
 #[derive(serde::Deserialize)]
@@ -156,7 +155,6 @@ pub(super) async fn main<'a>(
     cx: &'a super::Context,
 ) -> Result<(Vec<TempPath>, Cow<'a, Path>)> {
     let client = Downloader::new(args).context("failed to create HTTP client")?;
-    let client = Arc::new(client);
 
     let master_url: Url = args.url.as_ref().unwrap().parse().with_context(|| {
         format!(
@@ -173,8 +171,8 @@ pub(super) async fn main<'a>(
     let clip: Clip = client
         .get(master_url.clone())
         .send()
-        .and_then(|r| async { r.error_for_status() }.err_into())
-        .and_then(|r| r.json().err_into())
+        .and_then(|r| async { r.error_for_status() })
+        .and_then(|r| r.json())
         .await
         .with_context(|| format!("failed to get clip info from `{master_url}`"))?;
     let clip_url = master_url
@@ -214,7 +212,7 @@ pub(super) async fn main<'a>(
 }
 
 async fn download_merge(
-    client: &Arc<Downloader>,
+    client: &Downloader,
     urls: Vec<Source<'_>>,
     parallel_max: usize,
     skip: Option<u64>,
@@ -228,10 +226,11 @@ async fn download_merge(
     let mut stream = stream::iter(urls)
         .enumerate()
         .map(|(seq, source)| match source {
-            Source::Url(url) => {
-                let this = Arc::clone(client);
-                this.download(url).map_ok(move |path| (seq, path)).boxed()
-            }
+            Source::Url(url) => client
+                .download(url)
+                .map_ok(move |path| (seq, path))
+                .err_into()
+                .boxed(),
             Source::Base64(data) => decode_write(data).map_ok(move |path| (seq, path)).boxed(),
         })
         .buffer_unordered(parallel_max)

@@ -8,8 +8,7 @@ use m3u8_rs::{AlternativeMedia, KeyMethod, MasterPlaylist, MediaPlaylist, Playli
 use reqwest::Url;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::future::IntoFuture;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref as _, DerefMut as _};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -17,7 +16,7 @@ use std::task::{Context, Poll};
 use std::vec::IntoIter;
 use tempfile::TempPath;
 use tokio::fs::File;
-use tokio::io::{self, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
+use tokio::io::{self, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _, SeekFrom};
 use tokio::sync::{Notify, RwLock};
 use tokio::time::{Duration, Sleep, sleep};
 use tracing::warn;
@@ -29,7 +28,6 @@ pub(super) async fn main<'a>(
     cx: &'a super::Context,
 ) -> Result<(Vec<TempPath>, Cow<'a, Path>)> {
     let client = Downloader::new(args).context("failed to create HTTP client")?;
-    let client = Arc::new(client);
 
     let url: Url = args
         .url
@@ -61,7 +59,7 @@ pub(super) async fn main<'a>(
 }
 
 async fn resolve_playlist<'a>(
-    client: &Arc<Downloader>,
+    client: &'a Downloader,
     url: &Url,
     worst: bool,
 ) -> Result<Vec<SegmentStream<'a>>> {
@@ -119,7 +117,10 @@ async fn resolve_playlist<'a>(
 
 async fn get_playlist(client: &Downloader, url: Url) -> Result<Playlist> {
     let res = client
-        .get_bytes(url.clone())
+        .get(url.clone())
+        .send()
+        .and_then(|r| async { r.error_for_status() })
+        .and_then(|r| r.bytes())
         .await
         .with_context(|| format!("failed to get playlist from {url}"))?;
 
@@ -246,7 +247,7 @@ where
 #[derive(Clone)]
 struct KeyIv {
     #[allow(clippy::type_complexity)]
-    inner: Arc<RwLock<Poll<Result<(Bytes, Bytes)>>>>,
+    inner: Arc<RwLock<Poll<reqwest::Result<(Bytes, Bytes)>>>>,
     notify: Arc<Notify>,
 }
 
@@ -284,7 +285,7 @@ impl IntoFuture for KeyIv {
 }
 
 struct SegmentStream<'a> {
-    client: Arc<Downloader>,
+    client: &'a Downloader,
     url: Url,
     sleep: Option<Pin<Box<Sleep>>>,
     request: Option<BoxFuture<'a, Result<MediaPlaylist>>>,
@@ -297,9 +298,9 @@ struct SegmentStream<'a> {
 }
 
 impl<'a> SegmentStream<'a> {
-    fn new(client: &Arc<Downloader>, url: Url) -> Self {
+    fn new(client: &'a Downloader, url: Url) -> Self {
         Self {
-            client: Arc::clone(client),
+            client,
             url,
             sleep: None,
             request: None,
@@ -338,8 +339,8 @@ impl<'a> SegmentStream<'a> {
         self.client
             .get(self.url.clone())
             .send()
-            .and_then(|r| async { r.error_for_status() }.err_into())
-            .and_then(|r| r.bytes().err_into())
+            .and_then(|r| async { r.error_for_status() })
+            .and_then(|r| r.bytes())
             .err_into()
             .and_then(|body| async move { Self::parse_media_playlist(&body) })
     }
@@ -393,13 +394,14 @@ impl<'a> SegmentStream<'a> {
                 let iv = parse_iv(&iv).map(Bytes::from)?;
                 let key_iv = KeyIv::new();
 
-                let client = Arc::clone(&self.client);
+                let req = self.client.get(url);
                 let key_iv_inner = key_iv.clone();
                 tokio::spawn(async move {
-                    let res = client
-                        .get_bytes(url)
+                    let res = req
+                        .send()
+                        .and_then(|r| async { r.error_for_status() })
+                        .and_then(|r| r.bytes())
                         .map_ok(|key| (key, iv))
-                        .err_into()
                         .await;
                     *key_iv_inner.inner.write().await.deref_mut() = Poll::Ready(res);
                     key_iv_inner.notify.notify_waiters();
@@ -414,7 +416,7 @@ impl<'a> SegmentStream<'a> {
 
     async fn download_merge(
         mut self,
-        client: &Arc<Downloader>,
+        client: &Downloader,
         parallel_max: usize,
         skip: Option<u64>,
         progress: &indicatif::ProgressBar,
@@ -429,8 +431,10 @@ impl<'a> SegmentStream<'a> {
             .enumerate()
             .map(|(seq, res)| res.map(|seg| (seq, seg)))
             .map_ok(|(seq, seg)| {
-                seg.download(Arc::clone(client))
-                    .map_ok(move |(src, key_iv)| (seq, src, key_iv))
+                client
+                    .download(seg.url)
+                    .map_ok(move |src| (seq, src, seg.key_iv))
+                    .err_into()
             })
             .try_buffer_unordered(parallel_max)
             .fuse();
@@ -536,13 +540,6 @@ struct Segment {
 impl Segment {
     fn new(seq: u64, url: Url, key_iv: Option<KeyIv>) -> Self {
         Self { seq, url, key_iv }
-    }
-
-    async fn download(self, client: Arc<Downloader>) -> Result<(TempPath, Option<KeyIv>)> {
-        client
-            .download(self.url)
-            .map_ok(|path| (path, self.key_iv))
-            .await
     }
 }
 
