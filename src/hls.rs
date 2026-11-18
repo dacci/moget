@@ -30,11 +30,10 @@ pub(super) async fn main<'a>(
     let client = Downloader::new(args).context("failed to create HTTP client")?;
 
     let url: Url = args
-        .url
-        .as_ref()
+        .url()
         .unwrap()
         .parse()
-        .with_context(|| format!("failed to parse URL `{}`", args.url.as_ref().unwrap()))?;
+        .with_context(|| format!("failed to parse URL `{}`", args.url().unwrap()))?;
     let media = resolve_playlist(&client, &url, args.worst).await?;
 
     let vec = media

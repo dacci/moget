@@ -12,6 +12,8 @@ Arguments:
   [URL]  URL of the movie file to download
 
 Options:
+      --url <URL>
+          URL of the movie file to download
       --protocol <PROTOCOL>
           Protocol to use to communicate with the server [default: auto] [possible values: auto, vimeo, hls]
   -o, --output <FILE>

@@ -67,10 +67,11 @@ async fn async_main(args: Args) -> anyhow::Result<()> {
 
     let protocol = match args.protocol {
         Protocol::Auto => {
-            let url: Url =
-                args.url.as_ref().unwrap().parse().with_context(|| {
-                    format!("failed to parse URL `{}`", args.url.as_ref().unwrap())
-                })?;
+            let url: Url = args
+                .url()
+                .unwrap()
+                .parse()
+                .with_context(|| format!("failed to parse URL `{}`", args.url().unwrap()))?;
             if url.path().ends_with(".json") {
                 Protocol::Vimeo
             } else if url.path().ends_with(".m3u8") {
@@ -150,8 +151,12 @@ async fn signal() -> io::Result<()> {
 #[command(version, about)]
 pub struct Args {
     /// URL of the movie file to download.
-    #[arg(required_unless_present = "generate_completion", value_hint = ValueHint::Url)]
+    #[arg(required_unless_present_any = ["generate_completion", "url_opt"], value_hint = ValueHint::Url)]
     url: Option<String>,
+
+    /// URL of the movie file to download.
+    #[arg(long = "url", value_name = "URL", required_unless_present_any = ["generate_completion", "url"], value_hint = ValueHint::Url)]
+    url_opt: Option<String>,
 
     /// Protocol to use to communicate with the server.
     #[arg(long, default_value = "auto")]
@@ -216,6 +221,12 @@ pub struct Args {
     /// Generate shell completions.
     #[arg(long, value_name = "SHELL", exclusive = true)]
     generate_completion: Option<clap_complete::aot::Shell>,
+}
+
+impl Args {
+    fn url(&self) -> Option<&String> {
+        self.url.as_ref().or(self.url_opt.as_ref())
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]

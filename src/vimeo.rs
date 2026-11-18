@@ -156,12 +156,10 @@ pub(super) async fn main<'a>(
 ) -> Result<(Vec<TempPath>, Cow<'a, Path>)> {
     let client = Downloader::new(args).context("failed to create HTTP client")?;
 
-    let master_url: Url = args.url.as_ref().unwrap().parse().with_context(|| {
-        format!(
-            "failed to build master URL from `{}`",
-            args.url.as_ref().unwrap()
-        )
-    })?;
+    let master_url: Url =
+        args.url().unwrap().parse().with_context(|| {
+            format!("failed to build master URL from `{}`", args.url().unwrap())
+        })?;
     let params: UrlParams = if let Some(query) = master_url.query() {
         serde_urlencoded::from_str(query).context("illegal query params")?
     } else {
